@@ -13,9 +13,9 @@ os.environ.setdefault("STATIC_DIR", str(PROJECT_ROOT / "static"))
 
 sys.path.insert(0, str(PROJECT_ROOT / "backend"))
 
-from a2wsgi import WSGIMiddleware
+from a2wsgi import ASGIMiddleware
 from app.db import init_db
 from app.main import app
 
 init_db()
-application = WSGIMiddleware(app)
+application = ASGIMiddleware(app)
