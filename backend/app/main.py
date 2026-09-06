@@ -430,3 +430,18 @@ def fix_recurring_expenses(db:Session=Depends(get_db)):
         """))
         conn.commit()
         return {"status":"ok","updated":result.rowcount}
+# Serve the production frontend from the same origin as the API.
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+
+STATIC_DIR = Path("/app/static")
+if STATIC_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_frontend(full_path: str):
+        requested_file = STATIC_DIR / full_path
+        if full_path and requested_file.is_file():
+            return FileResponse(requested_file)
+        return FileResponse(STATIC_DIR / "index.html")
