@@ -79,5 +79,11 @@ jobs:
           path: backend-package.zip
           if-no-files-found: error
 
+      - name: Verify live deployment
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          curl --fail --show-error --silent --retry 3 --retry-all-errors --retry-delay 5 --max-time 30 https://arunsingh026.pythonanywhere.com/health
+          curl --fail --show-error --silent --retry 3 --retry-all-errors --retry-delay 5 --max-time 30 https://arunsingh026.pythonanywhere.com/ | grep -q '<div id="root"></div>'
+
       - name: CI Build Completed Successfully
         run: echo "CI Build Completed Successfully"
