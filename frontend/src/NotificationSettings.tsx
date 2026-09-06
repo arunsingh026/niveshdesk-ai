@@ -18,7 +18,7 @@ interface NotificationSettingsProps {
 const getApiUrl = () => {
   return window.location.hostname === "localhost"
     ? "http://localhost:8000"
-    : `http://${window.location.hostname}:8000`;
+    : window.location.origin;
 };
 
 const API = getApiUrl();

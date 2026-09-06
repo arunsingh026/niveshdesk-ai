@@ -24,7 +24,7 @@ export function Dashboard({ onLogout }: DashboardProps) {
   // Use the same host as the frontend, but port 8000 for API
   const API_BASE = window.location.hostname === "localhost"
     ? "http://localhost:8000"
-    : `http://${window.location.hostname}:8000`;
+    : window.location.origin;
 
   const [apps, setApps] = useState<AppStatus[]>([
     {
