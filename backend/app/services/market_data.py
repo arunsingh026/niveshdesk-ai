@@ -6,8 +6,8 @@ import os
 # outbound market data. The home path keeps this hosting-specific workaround
 # out of local and container environments.
 if os.path.isdir("/home/arunsingh026"):
-    os.environ.setdefault("http_proxy", "http://proxy.server:3128")
-    os.environ.setdefault("https_proxy", "http://proxy.server:3128")
+    for proxy_variable in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY"):
+        os.environ[proxy_variable] = "http://proxy.server:3128"
 
 import yfinance as yf
 from typing import Dict, List
