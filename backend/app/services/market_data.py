@@ -1,10 +1,11 @@
 from decimal import Decimal
 import os
 
-# PythonAnywhere injects DOMAIN_SOCKET for native ASGI apps, but the spawned
-# process does not inherit the proxy variables that are present in Bash
-# consoles. Free accounts need the platform proxy for outbound market data.
-if os.getenv("DOMAIN_SOCKET"):
+# PythonAnywhere's native ASGI worker does not inherit the proxy variables that
+# are present in Bash consoles. Free accounts need the platform proxy for
+# outbound market data. The home path keeps this hosting-specific workaround
+# out of local and container environments.
+if os.path.isdir("/home/arunsingh026"):
     os.environ.setdefault("http_proxy", "http://proxy.server:3128")
     os.environ.setdefault("https_proxy", "http://proxy.server:3128")
 
