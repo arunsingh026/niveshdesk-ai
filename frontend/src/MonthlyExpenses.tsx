@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { WorkspaceHeader } from "./WorkspaceHeader";
 
 interface Expense {
   id: number;
@@ -48,8 +48,9 @@ interface ExpenseInsight {
 }
 
 export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
-  const navigate = useNavigate();
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [search, setSearch] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showAddModal, setShowAddModal] = useState(false);
@@ -77,92 +78,24 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
   };
 
   const generateAIInsights = () => {
+    const money = (value: number) => `\u20b9${value.toLocaleString("en-IN")}`;
+    const total = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    const unpaid = expenses.filter(e => !e.is_paid);
+    const categories: Record<string, number> = {};
+    expenses.forEach(e => { const key = e.category || "Other"; categories[key] = (categories[key] || 0) + Number(e.amount || 0); });
+    const largest = Object.entries(categories).sort((a, b) => b[1] - a[1])[0];
     const insights: ExpenseInsight[] = [];
-    const totalAmount = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-
-    // Group expenses by category
-    const categoryTotals: Record<string, number> = {};
-    expenses.forEach(exp => {
-      const cat = exp.category || "Other";
-      categoryTotals[cat] = (categoryTotals[cat] || 0) + (exp.amount || 0);
-    });
-
-    // High EMI warning
-    const emiTotal = categoryTotals["EMI"] || 0;
-    if (emiTotal > totalAmount * 0.3) {
-      insights.push({
-        type: "warning",
-        category: "EMI",
-        title: "High EMI Burden",
-        description: `Your EMI payments are ${Math.round((emiTotal/totalAmount)*100)}% of total expenses. Consider prepaying loans to reduce interest burden.`,
-        potential_savings: Math.round(emiTotal * 0.15),
-        icon: "fa-exclamation-triangle"
-      });
+    if (unpaid.length) insights.push({type: "warning", category: "Payment overview", title: `${unpaid.length} payments remaining`, description: `${money(unpaid.reduce((sum, e) => sum + Number(e.amount || 0), 0))} is still marked unpaid for ${monthNames[month - 1]}. Review the unpaid list to plan your next payments.`, potential_savings: 0, icon: "fa-clock"});
+    else if (expenses.length) insights.push({type: "success", category: "Payment overview", title: "Everything is marked paid", description: `All ${expenses.length} expenses for this month are complete.`, potential_savings: 0, icon: "fa-check-circle"});
+    if (largest && total > 0) insights.push({type: "tip", category: "Spending mix", title: `${largest[0]} is your largest category`, description: `${money(largest[1])} accounts for ${Math.round(largest[1] / total * 100)}% of this month's recorded expenses.`, potential_savings: 0, icon: "fa-chart-pie"});
+    const previousDate = new Date(year, month - 2, 1);
+    const previous = monthlySummaries.find(m => m.year === previousDate.getFullYear() && m.month === previousDate.getMonth() + 1);
+    if (previous && previous.total_amount > 0 && expenses.length) {
+      const change = total - previous.total_amount;
+      insights.push({type: "tip", category: "Month comparison", title: `${money(Math.abs(change))} ${change >= 0 ? "more" : "less"} than last month`, description: `Recorded expenses are ${Math.abs(change / previous.total_amount * 100).toFixed(1)}% ${change >= 0 ? "higher" : "lower"}. One-time payments and changes to recurring expenses can affect this comparison.`, potential_savings: 0, icon: "fa-chart-line"});
     }
-
-    // Credit card optimization
-    const ccTotal = categoryTotals["Payments"] || 0;
-    if (ccTotal > 100000) {
-      insights.push({
-        type: "tip",
-        category: "Credit Cards",
-        title: "Credit Card Optimization",
-        description: "High credit card bills detected. Review statements for unnecessary subscriptions and impulse purchases.",
-        potential_savings: Math.round(ccTotal * 0.1),
-        icon: "fa-credit-card"
-      });
-    }
-
-    // Bills optimization
-    const billsTotal = categoryTotals["Bills"] || 0;
-    if (billsTotal > 5000) {
-      insights.push({
-        type: "tip",
-        category: "Bills",
-        title: "Utility Bills Optimization",
-        description: "Review electricity usage patterns. LED bulbs and AC temperature at 24°C can reduce bills by 15-20%.",
-        potential_savings: Math.round(billsTotal * 0.15),
-        icon: "fa-lightbulb"
-      });
-    }
-
-    // Investment appreciation
-    const investmentTotal = categoryTotals["Investments"] || 0;
-    if (investmentTotal > 0) {
-      insights.push({
-        type: "success",
-        category: "Investments",
-        title: "Great Investment Discipline!",
-        description: `You're investing ₹${investmentTotal.toLocaleString("en-IN")} monthly. Keep it up! Consider increasing by 10% annually.`,
-        potential_savings: 0,
-        icon: "fa-chart-line"
-      });
-    }
-
-    // Payment optimization
-    if (categoryTotals["Payments"] && categoryTotals["Payments"] > totalAmount * 0.4) {
-      insights.push({
-        type: "warning",
-        category: "Payments",
-        title: "High Discretionary Spending",
-        description: "Payments category is high. Review and categorize to identify areas for cost reduction.",
-        potential_savings: Math.round(categoryTotals["Payments"] * 0.08),
-        icon: "fa-wallet"
-      });
-    }
-
-    // Emergency fund check
-    if (investmentTotal < totalAmount * 0.15) {
-      insights.push({
-        type: "tip",
-        category: "Savings",
-        title: "Increase Emergency Fund",
-        description: "Target: Save at least 15% of monthly expenses. Build 6-month emergency fund for financial security.",
-        potential_savings: 0,
-        icon: "fa-piggy-bank"
-      });
-    }
-
+    const missing = expenses.filter(e => e.amount == null).length;
+    if (missing) insights.push({type: "warning", category: "Data completeness", title: `${missing} expenses need an amount`, description: "Add their amounts for a complete monthly total. They currently contribute zero to the totals.", potential_savings: 0, icon: "fa-pen"});
     setAiInsights(insights);
   };
 
@@ -171,8 +104,10 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
     const scrollPosition = preserveScroll ? window.scrollY || window.pageYOffset : 0;
 
     setLoading(true);
+    setLoadError("");
     try {
       const response = await fetch(`${API}/api/expenses/${year}/${month}`);
+      if (!response.ok) throw new Error("Unable to load expenses");
       const data = await response.json();
       setExpenses(data);
 
@@ -185,6 +120,7 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
       }
     } catch (error) {
       console.error("Failed to load expenses:", error);
+      setLoadError("Could not load this month. Check the connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -227,14 +163,12 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
   };
 
   const goToPreviousMonth = () => {
-    const newDate = new Date(currentDate);
-    newDate.setMonth(newDate.getMonth() - 1);
+    const newDate = new Date(year, month - 2, 1);
     setCurrentDate(newDate);
   };
 
   const goToNextMonth = () => {
-    const newDate = new Date(currentDate);
-    newDate.setMonth(newDate.getMonth() + 1);
+    const newDate = new Date(year, month, 1);
     setCurrentDate(newDate);
   };
 
@@ -335,6 +269,7 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
   const leftToPay = expenses.filter(e => !e.is_paid).reduce((sum, e) => sum + (e.amount || 0), 0);
 
   const filteredExpenses = expenses.filter((expense) => {
+    if (!`${expense.name} ${expense.category}`.toLowerCase().includes(search.toLowerCase())) return false;
     if (filter === "paid") return expense.is_paid;
     if (filter === "unpaid") return !expense.is_paid;
     return true;
@@ -346,10 +281,8 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
   }, [year, month]);
 
   useEffect(() => {
-    if (expenses.length > 0) {
-      generateAIInsights();
-    }
-  }, [expenses]);
+    generateAIInsights();
+  }, [expenses, monthlySummaries, year, month]);
 
   const formatDate = (dayOfMonth: number) => {
     return `${String(dayOfMonth).padStart(2, "0")}/${String(month).padStart(2, "0")}/${String(year).slice(2)}`;
@@ -357,24 +290,20 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
 
   return (
     <main className="expenses-page">
-      <div className="back-to-home">
-        <button onClick={() => navigate("/")} className="back-btn">
-          <i className="fas fa-home"></i> Back to Dashboard
-        </button>
-        {onLogout && (
-          <button onClick={onLogout} className="logout-btn">
-            <i className="fas fa-sign-out-alt"></i> Logout
-          </button>
-        )}
-      </div>
+      <WorkspaceHeader section="Expenses" onLogout={onLogout} />
 
+      <div className="workspace-heading">
+        <div><span className="workspace-eyebrow">YOUR MONEY, IN FOCUS</span><h1>Monthly expenses</h1><p>A clear view of every month. A little more peace of mind.</p></div>
+        <button className="workspace-add" onClick={() => { setEditingExpense(null); setShowAddModal(true); }}><i className="fas fa-plus" /> Add expense</button>
+      </div>
       <div className="expenses-layout">
-        {/* Monthly Breakdown & AI Advisor Sidebar - LEFT SIDE */}
-        <div className="monthly-sidebar">
+        {/* Monthly history */}
+        <aside className="monthly-sidebar" aria-label="Monthly breakdown">
           <div className="monthly-breakdown-section">
             <h3 className="sidebar-title">
-              <i className="fas fa-calendar-alt"></i> Monthly Breakdown
+              <i className="fas fa-calendar-alt"></i> Monthly breakdown
             </h3>
+            <p className="panel-caption">Your last 12 months at a glance</p>
             <div className="sidebar-months">
               {monthlySummaries.map((summary) => {
                 const isCurrentMonth = summary.year === year && summary.month === month;
@@ -385,6 +314,7 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
                   <button
                     key={`${summary.year}-${summary.month}`}
                     className={`month-summary-card ${isCurrentMonth ? "active" : ""}`}
+                    aria-current={isCurrentMonth ? "date" : undefined}
                     onClick={() => {
                       const newDate = new Date(summary.year, summary.month - 1, 1);
                       setCurrentDate(newDate);
@@ -422,58 +352,21 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
             </div>
           </div>
 
-          {/* AI Financial Advisor */}
-          <div className="ai-insights-panel">
-            <h3 className="sidebar-title">
-              <i className="fas fa-lightbulb"></i> AI Financial Advisor
-            </h3>
-            {aiInsights.length > 0 ? (
-              <>
-                <div className="insights-list">
-                  {aiInsights.map((insight, idx) => (
-                    <div key={idx} className={`insight-card insight-${insight.type}`}>
-                      <div className="insight-header">
-                        <i className={`fas ${insight.icon}`}></i>
-                        <span className="insight-category">{insight.category}</span>
-                      </div>
-                      <h4 className="insight-title">{insight.title}</h4>
-                      <p className="insight-description">{insight.description}</p>
-                      {insight.potential_savings > 0 && (
-                        <div className="insight-savings">
-                          <i className="fas fa-piggy-bank"></i>
-                          <span>Potential savings: <strong>₹{insight.potential_savings.toLocaleString("en-IN")}/mo</strong></span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <div className="ai-disclaimer">
-                  <i className="fas fa-info-circle"></i>
-                  <small>Personalized recommendations powered by AI based on your spending patterns</small>
-                </div>
-              </>
-            ) : (
-              <div className="no-insights">
-                <i className="fas fa-chart-line" style={{fontSize: '32px', color: '#cbd5e1', marginBottom: '12px'}}></i>
-                <p>Analyzing your expenses...</p>
-                <small>AI insights will appear as you add more expenses</small>
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Expenses Container - RIGHT SIDE */}
+        </aside>
+
+        {/* Selected month ledger */}
         <div className="expenses-container">
           <div className="expenses-sticky-header">
           <div className="expenses-header">
-            <button onClick={goToPreviousMonth} className="month-nav-btn">
+            <button aria-label="Previous month" onClick={goToPreviousMonth} className="month-nav-btn">
               <i className="fas fa-chevron-left"></i>
             </button>
             <div className="month-title">
-              <h1>My Monthly Expenses</h1>
-              <p className="month-subtitle">{monthNames[month - 1]} {year}</p>
+              <h2>{monthNames[month - 1]} {year}</h2>
+              <p className="month-subtitle">Your monthly expense ledger</p>
             </div>
-            <button onClick={goToNextMonth} className="month-nav-btn">
+            <button aria-label="Next month" onClick={goToNextMonth} className="month-nav-btn">
               <i className="fas fa-chevron-right"></i>
             </button>
           </div>
@@ -514,7 +407,7 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
               >
                 <i className="fas fa-check-double"></i> Mark All Paid
               </button>
-              {currentDate.getMonth() !== new Date().getMonth() && (
+              {(currentDate.getMonth() !== new Date().getMonth() || year !== new Date().getFullYear()) && (
                 <button onClick={goToToday} className="today-btn">
                   <i className="fas fa-calendar-day"></i> Today
                 </button>
@@ -555,7 +448,9 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
           )}
         </div>
 
+        <label className="expense-search"><i className="fas fa-search" /><input aria-label="Search expenses" placeholder="Search expenses or categories..." value={search} onChange={e => setSearch(e.target.value)} /><span>{filteredExpenses.length} items</span></label>
         <div className="expenses-scrollable-content">
+        {loadError && <div className="expense-error" role="alert">{loadError} <button onClick={() => loadExpenses()}>Retry</button></div>}
         {loading ? (
           <div className="expenses-loading">
             <i className="fas fa-spinner fa-spin"></i> Loading expenses...
@@ -573,6 +468,7 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
                 <label className="expense-checkbox">
                   <input
                     type="checkbox"
+                    aria-label={`Mark ${expense.name} ${expense.is_paid ? "unpaid" : "paid"}`}
                     checked={expense.is_paid}
                     onChange={() => togglePaid(expense.id, expense.is_paid)}
                   />
@@ -590,14 +486,10 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
                         <span className="expense-category">{expense.category}</span>
                       </>
                     )}
-                    {expense.amount && (
-                      <>
-                        <span className="meta-separator">•</span>
-                        <span className="expense-amount">₹{expense.amount.toLocaleString("en-IN")}</span>
-                      </>
-                    )}
+
                   </div>
                 </div>
+                <div className="expense-row-amount"><strong>{expense.amount == null ? "Not set" : `\u20b9${Number(expense.amount).toLocaleString("en-IN")}`}</strong><span className={expense.is_paid ? "status-paid" : "status-unpaid"}>{expense.is_paid ? "Paid" : "Unpaid"}</span></div>
                 <div className="expense-actions">
                   <button
                     onClick={() => handleEditClick(expense)}
@@ -621,10 +513,51 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
         )}
         </div>
 
-          <button onClick={() => setShowAddModal(true)} className="add-expense-fab">
+          <button onClick={() => setShowAddModal(true)} className="add-expense-fab" aria-label="Add expense">
             <i className="fas fa-plus"></i>
           </button>
         </div>
+        <aside className="advisor-sidebar" aria-label="Financial advisor">          {/* AI Financial Advisor */}
+          <div className="ai-insights-panel">
+            <h3 className="sidebar-title">
+              <i className="fas fa-wand-magic-sparkles"></i> AI Financial Advisor
+            </h3>
+            <p className="panel-caption">Your monthly money companion</p>
+            <div className="advisor-overview"><span className="advisor-mode">SPENDING SNAPSHOT</span><strong>{totalAmount > 0 ? Math.round(paidAmount / totalAmount * 100) : 0}%</strong><span>of this month's amount is paid</span><div className="advisor-meter"><span style={{width: `${totalAmount > 0 ? Math.min(100, paidAmount / totalAmount * 100) : 0}%`}} /></div><button onClick={() => setFilter("unpaid")}>Review unpaid expenses <i className="fas fa-arrow-right" /></button></div>
+            {aiInsights.length > 0 ? (
+              <>
+                <div className="insights-list">
+                  {aiInsights.map((insight, idx) => (
+                    <div key={idx} className={`insight-card insight-${insight.type}`}>
+                      <div className="insight-header">
+                        <i className={`fas ${insight.icon}`}></i>
+                        <span className="insight-category">{insight.category}</span>
+                      </div>
+                      <h4 className="insight-title">{insight.title}</h4>
+                      <p className="insight-description">{insight.description}</p>
+                      {insight.potential_savings > 0 && (
+                        <div className="insight-savings">
+                          <i className="fas fa-piggy-bank"></i>
+                          <span>Potential savings: <strong>₹{insight.potential_savings.toLocaleString("en-IN")}/mo</strong></span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="ai-disclaimer">
+                  <i className="fas fa-info-circle"></i>
+                  <small>Calculated from your recorded expenses. Rule-based insights; no AI model is connected.</small>
+                </div>
+              </>
+            ) : (
+              <div className="no-insights">
+                <i className="fas fa-chart-line" style={{fontSize: '32px', color: '#cbd5e1', marginBottom: '12px'}}></i>
+                <p>No insights for this month yet</p>
+                <small>Add expenses to see your monthly overview</small>
+              </div>
+            )}
+          </div>
+        </aside>
       </div>
 
       {showAddModal && (
@@ -637,6 +570,7 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
             setShowAddModal(false);
             setEditingExpense(null);
             loadExpenses(true); // Preserve scroll position
+            loadMonthlySummaries();
           }}
           editingExpense={editingExpense}
           currentYear={year}
@@ -691,7 +625,7 @@ function DeleteConfirmModal({ expense, currentMonth, currentYear, onClose, onDel
       <div className="modal-content delete-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2><i className="fas fa-trash-alt"></i> Delete Expense</h2>
-          <button onClick={onClose} className="modal-close">
+          <button onClick={onClose} className="modal-close" aria-label="Close dialog">
             <i className="fas fa-times"></i>
           </button>
         </div>
@@ -778,7 +712,7 @@ function AddExpenseModal({ onClose, onSuccess, editingExpense, currentYear, curr
     day_of_month: editingExpense?.day_of_month ? String(editingExpense.day_of_month) : "1",
     category: editingExpense?.category || "Bills",
     description: editingExpense?.description || "",
-    is_recurring: true
+    is_recurring: editingExpense?.is_recurring ?? true
   });
   const [saving, setSaving] = useState(false);
   const isEditing = !!editingExpense;
@@ -810,12 +744,13 @@ function AddExpenseModal({ onClose, onSuccess, editingExpense, currentYear, curr
       const url = isEditing ? `${API}/api/expenses/${editingExpense.id}` : `${API}/api/expenses`;
       const method = isEditing ? "PUT" : "POST";
 
-      await fetch(url, {
+      const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
 
+      if (!response.ok) throw new Error("Could not save the expense");
       onSuccess();
     } catch (error) {
       console.error("Failed to add expense:", error);
@@ -827,10 +762,10 @@ function AddExpenseModal({ onClose, onSuccess, editingExpense, currentYear, curr
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content" role="dialog" aria-modal="true" aria-label={isEditing ? "Edit expense" : "Add expense"} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{isEditing ? "Edit Expense" : "Add Monthly Expense"}</h2>
-          <button onClick={onClose} className="modal-close">
+          <button onClick={onClose} className="modal-close" aria-label="Close dialog">
             <i className="fas fa-times"></i>
           </button>
         </div>

@@ -1,5 +1,5 @@
+import { WorkspaceHeader } from "./WorkspaceHeader";
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 
 interface NotificationStatus {
   email_enabled: boolean;
@@ -24,7 +24,6 @@ const getApiUrl = () => {
 const API = getApiUrl();
 
 export function NotificationSettings({ onLogout }: NotificationSettingsProps) {
-  const navigate = useNavigate();
   const [status, setStatus] = useState<NotificationStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -78,26 +77,12 @@ export function NotificationSettings({ onLogout }: NotificationSettingsProps) {
   };
 
   return (
-    <main>
-      <div className="back-to-home">
-        <button onClick={() => navigate("/")} className="back-btn">
-          <i className="fas fa-home"></i> Back to Dashboard
-        </button>
-        {onLogout && (
-          <button onClick={onLogout} className="logout-btn">
-            <i className="fas fa-sign-out-alt"></i> Logout
-          </button>
-        )}
-      </div>
+    <main className="app-workspace notification-workspace">
+      <WorkspaceHeader section="Notifications" onLogout={onLogout} />
+      <div className="suite-content">
 
       <div className="notification-settings">
-        <div className="settings-header">
-          <div className="settings-icon">
-            <i className="fas fa-bell"></i>
-          </div>
-          <h1>Notification Settings</h1>
-          <p>Configure email and WhatsApp notifications for stock recommendations</p>
-        </div>
+        <div className="suite-page-heading"><span className="suite-eyebrow">STAY IN THE KNOW</span><h1>Notification Settings</h1><p>Your investment updates, delivered where you need them.</p></div>
 
         {loading ? (
           <div className="loading-state">
@@ -112,7 +97,7 @@ export function NotificationSettings({ onLogout }: NotificationSettingsProps) {
                 </div>
                 <div className="card-content">
                   <h3>Email Notifications</h3>
-                  <p>Receive detailed stock recommendations via email with formatted HTML content</p>
+                  <p>A detailed summary of your stock recommendations, delivered to your inbox.</p>
                   {getStatusBadge(status?.email_enabled || false, status?.email_configured || false)}
                 </div>
               </div>
@@ -122,8 +107,8 @@ export function NotificationSettings({ onLogout }: NotificationSettingsProps) {
                   <i className="fab fa-telegram"></i>
                 </div>
                 <div className="card-content">
-                  <h3>Telegram Notifications (FREE)</h3>
-                  <p>Get instant stock alerts on Telegram - completely free and easy to set up</p>
+                  <h3>Telegram Notifications</h3>
+                  <p>Receive stock updates in your Telegram bot conversation.</p>
                   {getStatusBadge(status?.telegram_enabled || false, status?.telegram_configured || false)}
                 </div>
               </div>
@@ -134,13 +119,13 @@ export function NotificationSettings({ onLogout }: NotificationSettingsProps) {
                 </div>
                 <div className="card-content">
                   <h3>WhatsApp Notifications</h3>
-                  <p>Get instant stock alerts on WhatsApp via Twilio integration (Paid)</p>
+                  <p>Receive stock alerts through your configured WhatsApp channel.</p>
                   {getStatusBadge(status?.whatsapp_enabled || false, status?.whatsapp_configured || false)}
                 </div>
               </div>
             </div>
 
-            <div className="action-section">
+            <div className="action-section"><div className="delivery-copy"><h2>Check your delivery</h2><p>Send the current stock recommendations to your enabled channels.</p><small>Disabled channels will not receive messages.</small></div>
               <button onClick={sendTestNotification} disabled={sending} className="send-notification-btn">
                 {sending ? (
                   <>
@@ -160,8 +145,8 @@ export function NotificationSettings({ onLogout }: NotificationSettingsProps) {
               )}
             </div>
 
-            <div className="configuration-info">
-              <h3><i className="fas fa-cog"></i> How to Configure</h3>
+            <details className="configuration-info">
+              <summary><span><i className="fas fa-sliders-h" /> Channel setup guide</span><span className="guide-hint">View instructions <i className="fas fa-chevron-down" /></span></summary>
 
               <div className="info-section">
                 <h4>📧 Email Setup (Gmail)</h4>
@@ -236,7 +221,7 @@ docker compose restart api
                   <i className="fas fa-info-circle"></i> The configuration will be loaded automatically on restart
                 </p>
               </div>
-            </div>
+            </details>
           </>
         )}
       </div>
@@ -244,6 +229,7 @@ docker compose restart api
       <footer className="footer">
         <i className="fas fa-copyright"></i> {new Date().getFullYear()} Arun Kumar. All rights reserved.
       </footer>
+      </div>
     </main>
   );
 }

@@ -13,6 +13,8 @@ import "./pin-auth.css";
 import "./notification-settings.css";
 import "./monthly-expenses.css";
 import "./loading-screen.css";
+import "./expenses-workspace.css";
+import "./suite-theme.css";
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);

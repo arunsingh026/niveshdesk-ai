@@ -143,12 +143,12 @@ export function Dashboard({ onLogout }: DashboardProps) {
   };
 
   return (
-    <div className="dashboard">
+    <div className="dashboard suite-dashboard">
       <header className="dashboard-header">
         <div className="header-content">
           <div className="logo-section">
-            <i className="fas fa-home dashboard-icon"></i>
-            <h1>Arun's Personal Dashboard</h1>
+            <span className="suite-dashboard-logo">S</span>
+            <h1>Stock Planner <span>/ Overview</span></h1>
           </div>
           <div className="header-controls">
             <div className="server-controls">
@@ -166,7 +166,7 @@ export function Dashboard({ onLogout }: DashboardProps) {
                 </button>
               )}
               {serverRunning === "running" && (
-                <button onClick={checkServerStatus} className="refresh-btn">
+                <button onClick={checkServerStatus} className="refresh-btn" aria-label="Refresh connection status">
                   <i className="fas fa-sync-alt"></i>
                 </button>
               )}
@@ -190,20 +190,26 @@ export function Dashboard({ onLogout }: DashboardProps) {
 
       <div className={`dashboard-container ${isBlurred ? "blurred" : ""}`}>
         <div className="welcome-section">
-          <h2>Welcome Back, Arun! 👋</h2>
-          <p>Choose an application to get started</p>
+          <div><span className="suite-eyebrow">YOUR FINANCIAL WORKSPACE</span><h2>Welcome back, Arun.</h2><p>Less guesswork. More clarity. Your money, all in one place.</p></div>
+          <span className="overview-date"><i className="far fa-calendar" /> {new Date().toLocaleDateString("en-IN", {day:"numeric",month:"long",year:"numeric"})}</span>
         </div>
+        <section className="dashboard-focus">
+          <div><span className="focus-label">MAKE ROOM FOR WHAT MATTERS</span><h2>A little planning.<br />A clearer month ahead.</h2><p>Keep track of your monthly commitments, review your investments, and stay on top of every payment.</p><button onClick={() => navigate("/expenses")}>View monthly expenses <i className="fas fa-arrow-right" /></button></div>
+          <div className="focus-illustration" aria-hidden="true"><div className="focus-orbit orbit-one" /><div className="focus-orbit orbit-two" /><div className="focus-mini"><i className="fas fa-check-circle" /><span>Plan. Track. Review.</span><div className="focus-bars"><b /><b /><b /><b /><b /><b /></div></div></div>
+        </section>
+        <div className="suite-section-heading"><h2>Your tools</h2><p>A dedicated space for every part of your finances</p></div>
 
         <div className="apps-grid">
-          {apps.map((app, index) => (
+          {[...apps].sort((a,b) => Number(!a.apiUrl) - Number(!b.apiUrl)).map((app, index) => (
             <div
               key={index}
               className={`app-card ${app.status}`}
               onClick={() => handleAppClick(app)}
-              style={{ borderColor: app.color }}
+              role="button" tabIndex={0} aria-label={`Open ${app.name}`}
+              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleAppClick(app); } }}
             >
               <div className="app-card-header">
-                <div className="app-icon" style={{ background: app.color }}>
+                <div className="app-icon" >
                   <i className={`fas ${app.icon}`}></i>
                 </div>
                 <div className={`app-status-badge ${app.status}`}>
@@ -223,13 +229,13 @@ export function Dashboard({ onLogout }: DashboardProps) {
               </div>
               <div className="app-card-footer">
                 {app.status === "active" ? (
-                  <button className="app-launch-btn">
-                    <i className="fas fa-arrow-right"></i> Launch
-                  </button>
+                  <span className="app-launch-btn">
+                    <i className="fas fa-arrow-right"></i> Open workspace
+                  </span>
                 ) : (
-                  <button className="app-launch-btn disabled">
+                  <span className="app-launch-btn disabled">
                     <i className="fas fa-lock"></i> Coming Soon
-                  </button>
+                  </span>
                 )}
               </div>
             </div>

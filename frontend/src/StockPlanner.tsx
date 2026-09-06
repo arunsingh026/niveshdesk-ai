@@ -1,5 +1,5 @@
+import { WorkspaceHeader } from "./WorkspaceHeader";
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { StockChartModal } from "./StockChartModal";
 import { SIPConfigModal, SIPConfirmModal } from "./SIPModals";
 import { MutualFundModal } from "./MutualFundModal";
@@ -143,7 +143,6 @@ interface StockPlannerProps {
 }
 
 export function StockPlanner({ onLogout }: StockPlannerProps) {
-  const navigate = useNavigate();
   const [rows, setRows] = useState<R[]>([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
@@ -378,24 +377,11 @@ export function StockPlanner({ onLogout }: StockPlannerProps) {
   };
 
   return (
-    <main>
-      <div className="back-to-home">
-        <button onClick={() => navigate("/")} className="back-btn">
-          <i className="fas fa-home"></i> Back to Dashboard
-        </button>
-        {onLogout && (
-          <button onClick={onLogout} className="logout-btn">
-            <i className="fas fa-sign-out-alt"></i> Logout
-          </button>
-        )}
-      </div>
+    <main className="app-workspace investment-workspace">
+      <WorkspaceHeader section="Stocks & funds" onLogout={onLogout} />
+      <div className="suite-content">
       <MarketBanner />
-      <div className="logo-header">
-        <div className="app-logo">
-          <i className="fas fa-chart-line"></i>
-        </div>
-        <span className="logo-text">Arun's Stock Planner</span>
-      </div>
+      <div className="suite-page-heading"><span className="suite-eyebrow">INVEST WITH INTENTION</span><h1>Stocks &amp; funds</h1><p>Your monthly plan, from allocation to review.</p></div>
 
       <div className="combined-budget">
         <div className="combined-budget-main">
@@ -479,7 +465,7 @@ export function StockPlanner({ onLogout }: StockPlannerProps) {
             <i className={`fas fa-${autoRefresh ? "play" : "pause"}`}></i>
             {autoRefresh ? "Live" : "Paused"}
           </button>
-          <button onClick={() => load(true)} className="refresh-prices-btn" disabled={isUpdating}>
+          <button onClick={() => load(true)} aria-label="Refresh market prices" className="refresh-prices-btn" disabled={isUpdating}>
             <i className={`fas fa-sync-alt ${isUpdating ? "fa-spin" : ""}`}></i>
           </button>
           <button onClick={run} className="run-review-btn">
@@ -487,7 +473,7 @@ export function StockPlanner({ onLogout }: StockPlannerProps) {
           </button>
         </div>
       </header>
-      <section className="stats">
+      <section className="stats" aria-label="Investment summary">
         <div>
           <span>Budget</span>
           <strong>₹{(activeTab === "stocks" ? stockBudget : mfBudget).toLocaleString("en-IN")}</strong>
@@ -531,17 +517,17 @@ export function StockPlanner({ onLogout }: StockPlannerProps) {
         <div className="filters">
           <input
             type="text"
-            placeholder="Search stocks..."
+            placeholder={activeTab === "stocks" ? "Search stocks..." : "Search mutual funds..."}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="search-input"
+            className="search-input" aria-label="Search investments"
           />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="filter-select">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="filter-select" aria-label="Filter by status">
             <option value="ALL">All Status</option>
             <option value="BUY">Buy</option>
             <option value="WAIT">Wait</option>
           </select>
-          <select value={capFilter} onChange={(e) => setCapFilter(e.target.value)} className="filter-select">
+          <select value={capFilter} onChange={(e) => setCapFilter(e.target.value)} className="filter-select" aria-label="Filter by market cap">
             <option value="ALL">All Cap</option>
             <option value="large">Large Cap</option>
             <option value="mid">Mid Cap</option>
@@ -590,7 +576,7 @@ export function StockPlanner({ onLogout }: StockPlannerProps) {
             <i className="fas fa-spinner fa-spin"></i> Loading market data…
           </p>
         ) : (
-          <div className="tableWrap">
+          <div className="tableWrap" tabIndex={0} role="region" aria-label="Investment table, scroll horizontally for all columns">
             <table>
               <thead>
                 <tr>
@@ -785,6 +771,7 @@ export function StockPlanner({ onLogout }: StockPlannerProps) {
           onConfirm={confirmSipChanges}
         />
       )}
+      </div>
     </main>
   );
 }

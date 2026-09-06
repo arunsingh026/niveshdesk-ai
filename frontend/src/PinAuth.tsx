@@ -68,15 +68,25 @@ export function PinAuth({ onAuthenticated }: PinAuthProps) {
   };
 
   return (
-    <div className="pin-overlay">
+    <div className="pin-overlay login-workspace">
+      <div className="login-brand"><span>S</span> Stock Planner</div>
+      <div className="login-layout">
+      <section className="login-intro">
+        <span className="login-eyebrow">YOUR FINANCIAL WORKSPACE</span>
+        <h1>A clearer view.<br />A calmer month.</h1>
+        <p>Your expenses, investments, and monthly plans, together in one thoughtful space.</p>
+        <div className="login-features"><span><i className="fas fa-wallet" /> Track every expense</span><span><i className="fas fa-chart-line" /> Plan your investments</span><span><i className="far fa-calendar-check" /> Stay on top of your month</span></div>
+        <div className="login-art" aria-hidden="true"><div /><div /><div /><div /><div /><div /><div /></div>
+      </section>
       <div className="pin-modal">
+        <span className="login-eyebrow">WELCOME BACK</span>
         <div className="pin-icon">
           <i className="fas fa-lock"></i>
         </div>
         <h2>Enter PIN</h2>
-        <p>Enter your 4-digit PIN to access the dashboard</p>
+        <p>Enter your 4-digit PIN to open your workspace.</p>
 
-        <div className="pin-display">
+        <div className="pin-display" role="status" aria-label={`${pin.length} of 4 PIN digits entered`}>
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className={`pin-dot ${pin.length > i ? "filled" : ""}`}>
               {pin.length > i && <i className="fas fa-circle"></i>}
@@ -85,7 +95,7 @@ export function PinAuth({ onAuthenticated }: PinAuthProps) {
         </div>
 
         {error && (
-          <div className="pin-error">
+          <div className="pin-error" role="alert">
             <i className="fas fa-exclamation-circle"></i> {error}
           </div>
         )}
@@ -96,17 +106,20 @@ export function PinAuth({ onAuthenticated }: PinAuthProps) {
               {num}
             </button>
           ))}
-          <button onClick={() => setPin("")} className="pin-key clear">
+          <button onClick={() => setPin("")} className="pin-key clear" aria-label="Clear PIN">
             <i className="fas fa-redo"></i>
           </button>
           <button onClick={() => handleKeyPress("0")} className="pin-key">
             0
           </button>
-          <button onClick={handleBackspace} className="pin-key backspace">
+          <button onClick={handleBackspace} className="pin-key backspace" aria-label="Delete last digit">
             <i className="fas fa-backspace"></i>
           </button>
         </div>
+        <p className="login-help"><i className="far fa-keyboard" /> Use the keypad or type on your keyboard</p>
       </div>
+      </div>
+      <footer className="login-footer">Your money. Your plan. Your pace.</footer>
     </div>
   );
 }
