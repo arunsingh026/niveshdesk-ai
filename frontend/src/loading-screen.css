@@ -1,0 +1,441 @@
+/* Loading Screen Styles */
+.loading-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, #e0f2fe 0%, #f3e8ff 50%, #fef3c7 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99999;
+  animation: fadeIn 0.3s ease-in;
+}
+
+.loading-content {
+  text-align: center;
+  width: 100%;
+  max-width: 600px;
+  padding: 40px 20px;
+}
+
+/* Logo Stages Container */
+.logo-stages {
+  position: relative;
+  height: 280px;
+  margin-bottom: 30px;
+}
+
+.logo-stage {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.5s ease-in-out;
+}
+
+.logo-stage.active {
+  opacity: 1;
+}
+
+/* Stage 1: Simple A in circle */
+.logo-circle {
+  width: 140px;
+  height: 140px;
+  background: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  border: 3px solid transparent;
+  background-image: linear-gradient(white, white),
+                    linear-gradient(135deg, #06b6d4, #a855f7);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+}
+
+.logo-a-simple, .logo-a-gradient {
+  width: 80px;
+  height: 80px;
+}
+
+/* Stage 2: Spinning with ring */
+.logo-circle.spinning {
+  position: relative;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.spinner-ring {
+  position: absolute;
+  width: 160px;
+  height: 160px;
+  border: 4px solid transparent;
+  border-top-color: #06b6d4;
+  border-right-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  top: -13px;
+  left: -13px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+/* Stage 3: With arrow */
+.logo-circle.with-arrow {
+  width: 160px;
+  height: 160px;
+}
+
+.logo-complete {
+  width: 120px;
+  height: 120px;
+}
+
+.arrow-path {
+  animation: arrowDraw 0.6s ease-out;
+}
+
+@keyframes arrowDraw {
+  from {
+    stroke-dasharray: 200;
+    stroke-dashoffset: 200;
+  }
+  to {
+    stroke-dasharray: 200;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Stage 4: Full dashboard preview */
+.logo-dashboard {
+  animation: zoomIn 0.5s ease-out;
+}
+
+.dashboard-card {
+  position: relative;
+  width: 280px;
+  height: 200px;
+  background: white;
+  border-radius: 20px;
+  padding: 30px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-main {
+  width: 140px;
+  height: 140px;
+}
+
+.dashboard-icons {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.mini-icon {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: iconPop 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.chart-icon {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  top: 20px;
+  left: 20px;
+  animation-delay: 0.1s;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+.trend-icon {
+  background: linear-gradient(135deg, #10b981, #059669);
+  top: 20px;
+  right: 20px;
+  animation-delay: 0.2s;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+.wallet-icon {
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  bottom: 20px;
+  right: 20px;
+  animation-delay: 0.3s;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+.bell-icon {
+  background: linear-gradient(135deg, #a855f7, #9333ea);
+  right: 80px;
+  top: 50%;
+  transform: translateY(-50%);
+  animation-delay: 0.4s;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+.calendar-icon {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  bottom: 20px;
+  left: 20px;
+  animation-delay: 0.5s;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+@keyframes iconPop {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes zoomIn {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Brand text */
+.brand-title {
+  font-size: 42px;
+  font-weight: 900;
+  color: #1e293b;
+  margin: 0 0 4px 0;
+  letter-spacing: 2px;
+}
+
+.brand-subtitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: #64748b;
+  margin: 0 0 8px 0;
+  letter-spacing: 3px;
+}
+
+.brand-tagline {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 20px;
+  letter-spacing: 2px;
+}
+
+/* Loading text */
+.loading-text {
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #64748b;
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+
+.loading-status {
+  color: #475569;
+  font-size: 16px;
+}
+
+.loading-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.loading-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #a855f7);
+  animation: dotBounce 1.4s infinite ease-in-out both;
+}
+
+.loading-dots span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes dotBounce {
+  0%, 80%, 100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
+}
+
+/* Progress bar */
+.progress-container {
+  width: 100%;
+  max-width: 400px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 0 auto;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #06b6d4, #3b82f6, #a855f7);
+  border-radius: 10px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+}
+
+.almost-there {
+  margin-top: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #3b82f6;
+  animation: fadeInUp 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .loading-content {
+    padding: 20px;
+  }
+
+  .logo-stages {
+    height: 240px;
+  }
+
+  .logo-circle {
+    width: 120px;
+    height: 120px;
+  }
+
+  .logo-circle.with-arrow {
+    width: 140px;
+    height: 140px;
+  }
+
+  .dashboard-card {
+    width: 240px;
+    height: 180px;
+    padding: 20px;
+  }
+
+  .logo-main {
+    width: 120px;
+    height: 120px;
+  }
+
+  .mini-icon {
+    width: 38px;
+    height: 38px;
+    font-size: 16px;
+  }
+
+  .brand-title {
+    font-size: 32px;
+  }
+
+  .brand-subtitle {
+    font-size: 12px;
+  }
+
+  .brand-tagline {
+    font-size: 12px;
+  }
+}
+/* Circular Logo Final Stage */
+.final-logo-circle {
+  width: 260px;
+  height: 260px;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 32px rgba(102, 126, 234, 0.3));
+  animation: finalLogoAppear 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+@keyframes finalLogoAppear {
+  0% {
+    transform: scale(0.3) rotate(-10deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.05) rotate(2deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .final-logo-circle {
+    width: 200px;
+    height: 200px;
+  }
+}

@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: stockplanner
+      POSTGRES_PASSWORD: stockplanner
+      POSTGRES_DB: stockplanner
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+  api:
+    build: ./backend
+    env_file: [.env]
+    depends_on: [db]
+    ports: ["8000:8000"]
+    volumes:
+      - ./backend/app:/app/app
+  web:
+    build: ./frontend
+    depends_on: [api]
+    ports: ["5173:5173"]
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+volumes:
+  pgdata:

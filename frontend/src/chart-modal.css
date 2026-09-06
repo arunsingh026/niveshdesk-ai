@@ -1,0 +1,213 @@
+/* Chart Modal Styles */
+.chart-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 20px;
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.chart-modal,
+.chart-modal-container {
+  background: #ffffff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 1200px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.chart-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e6e8ec;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 16px 16px 0 0;
+  color: white;
+}
+
+.chart-modal-title h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.chart-modal-title p {
+  margin: 4px 0 0 0;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.chart-modal-close {
+  background: rgba(255, 255, 255, 0.2);
+  border: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 18px;
+  transition: all 0.2s;
+}
+
+.chart-modal-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: rotate(90deg);
+}
+
+.chart-period-selector {
+  display: flex;
+  gap: 8px;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e6e8ec;
+  overflow-x: auto;
+}
+
+.period-btn {
+  padding: 8px 16px;
+  border: 1px solid #e6e8ec;
+  background: #fff;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: #667085;
+  white-space: nowrap;
+}
+
+.period-btn:hover {
+  background: #f6f7f9;
+  border-color: #667eea;
+}
+
+.period-btn.active {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+.chart-container {
+  padding: 24px;
+  position: relative;
+  min-height: 500px;
+}
+
+.chart-loading,
+.chart-error {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: #667085;
+  font-size: 15px;
+}
+
+.chart-error {
+  color: #ef4444;
+}
+
+.chart-loading i {
+  margin-right: 8px;
+  color: #10b981;
+}
+
+.chart-modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid #e6e8ec;
+  background: #f6f7f9;
+  border-radius: 0 0 16px 16px;
+}
+
+.chart-disclaimer {
+  margin: 0;
+  font-size: 12px;
+  color: #667085;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-disclaimer i {
+  color: #f59e0b;
+}
+
+/* Stock row clickable cursor */
+tbody tr {
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+tbody tr:hover {
+  background: #f9fafb;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .chart-modal {
+    max-height: 95vh;
+    margin: 10px;
+  }
+
+  .chart-modal-header {
+    padding: 16px 20px;
+  }
+
+  .chart-modal-title h2 {
+    font-size: 20px;
+  }
+
+  .chart-period-selector {
+    padding: 12px 16px;
+    gap: 6px;
+  }
+
+  .period-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  .chart-container {
+    padding: 16px;
+  }
+
+  .chart-container > div {
+    height: 400px !important;
+  }
+}
