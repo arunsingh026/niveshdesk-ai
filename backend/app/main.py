@@ -434,8 +434,9 @@ def fix_recurring_expenses(db:Session=Depends(get_db)):
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+import os
 
-STATIC_DIR = Path("/app/static")
+STATIC_DIR = Path(os.getenv("STATIC_DIR", "/app/static"))
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
