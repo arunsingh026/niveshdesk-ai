@@ -1,5 +1,9 @@
 from decimal import Decimal
+import logging
 from .market_data import get_price_with_change
+
+logger = logging.getLogger(__name__)
+
 def classify(price,minimum,maximum):
     if price is None:return "REVIEW","No usable market price."
     if minimum is not None and price<minimum:return "BUY","Below preferred accumulation range."
@@ -24,6 +28,7 @@ def build_recommendations(stocks,stock_budget=35000,mf_budget=30000):
             day_change=price_data["day_change"]
             day_change_percent=price_data["day_change_percent"]
         except Exception:
+            logger.exception("Market data retrieval failed for %s", s.symbol)
             price=None
             day_change=None
             day_change_percent=None
