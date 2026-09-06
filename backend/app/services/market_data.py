@@ -1,8 +1,5 @@
 from decimal import Decimal
 import os
-import yfinance as yf
-from typing import Dict, List
-from datetime import datetime
 
 # PythonAnywhere injects DOMAIN_SOCKET for native ASGI apps, but the spawned
 # process does not inherit the proxy variables that are present in Bash
@@ -10,6 +7,10 @@ from datetime import datetime
 if os.getenv("DOMAIN_SOCKET"):
     os.environ.setdefault("http_proxy", "http://proxy.server:3128")
     os.environ.setdefault("https_proxy", "http://proxy.server:3128")
+
+import yfinance as yf
+from typing import Dict, List
+from datetime import datetime
 
 class MarketDataError(Exception): pass
 def get_price(nse_symbol:str)->Decimal:
