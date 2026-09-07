@@ -7,6 +7,8 @@ import { PinAuth } from "./PinAuth";
 import { NotificationSettings } from "./NotificationSettings";
 import { MonthlyExpenses } from "./MonthlyExpenses";
 import { LoadingScreen } from "./LoadingScreen";
+import { BudgetPlanner } from "./BudgetPlanner";
+import { InvestmentPortfolio } from "./InvestmentPortfolio";
 import "./styles.css";
 import "./dashboard.css";
 import "./pin-auth.css";
@@ -15,6 +17,7 @@ import "./monthly-expenses.css";
 import "./loading-screen.css";
 import "./expenses-workspace.css";
 import "./suite-theme.css";
+import "./money-workspaces.css";
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
@@ -73,20 +76,10 @@ function App() {
         <Route path="/stock-planner" element={<StockPlanner onLogout={handleLogout} />} />
         <Route path="/notifications" element={<NotificationSettings onLogout={handleLogout} />} />
         <Route path="/expenses" element={<MonthlyExpenses onLogout={handleLogout} />} />
-        <Route path="/budget" element={<ComingSoon name="Budget Tracker" />} />
-        <Route path="/portfolio" element={<ComingSoon name="Investment Portfolio" />} />
+        <Route path="/budget" element={<BudgetPlanner onLogout={handleLogout} />} />
+        <Route path="/portfolio" element={<InvestmentPortfolio onLogout={handleLogout} />} />
       </Routes>
     </BrowserRouter>
-  );
-}
-
-function ComingSoon({ name }: { name: string }) {
-  return (
-    <div style={{ padding: "40px", textAlign: "center" }}>
-      <h1>🚧 {name}</h1>
-      <p>Coming Soon!</p>
-      <a href="/">← Back to Dashboard</a>
-    </div>
   );
 }
 
