@@ -620,7 +620,7 @@ export function StockPlanner({ onLogout }: StockPlannerProps) {
                     title={r.instrument_type === "stock" ? "Click to view advanced chart" : "Click to view fund details"}
                     style={{ cursor: "pointer" }}
                   >
-                    <td>
+                    <td data-label={activeTab === "stocks" ? "Stock" : "Fund"}>
                       <div className="stock-cell">
                         <StockLogo symbol={r.symbol} instrumentType={r.instrument_type} />
                         <div>
@@ -629,12 +629,12 @@ export function StockPlanner({ onLogout }: StockPlannerProps) {
                         </div>
                       </div>
                     </td>
-                    <td>
+                    <td data-label="Cap">
                       <span className="cap-badge">
                         <i className="fas fa-circle"></i> {r.market_cap}
                       </span>
                     </td>
-                    <td>
+                    <td data-label={activeTab === "stocks" ? "Price" : "SIP"}>
                       {r.instrument_type === "mutual_fund" ? (
                         <span className="mf-sip-badge">
                           <i className="fas fa-calendar-alt"></i> SIP
@@ -656,8 +656,8 @@ export function StockPlanner({ onLogout }: StockPlannerProps) {
                         </div>
                       )}
                     </td>
-                    <td>₹{r.target_amount.toLocaleString("en-IN")}</td>
-                    <td onClick={(e) => e.stopPropagation()}>
+                    <td data-label="Target">₹{r.target_amount.toLocaleString("en-IN")}</td>
+                    <td data-label={activeTab === "stocks" ? "Quantity" : "SIP date"} onClick={(e) => e.stopPropagation()}>
                       {r.instrument_type === "mutual_fund" ? (
                         editingSipDate === r.symbol ? (
                           <div className="sip-date-editor">
@@ -709,8 +709,8 @@ export function StockPlanner({ onLogout }: StockPlannerProps) {
                         r.quantity
                       )}
                     </td>
-                    <td>₹{Number(r.deploy_amount).toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
-                    <td>
+                    <td data-label="Deploy">₹{Number(r.deploy_amount).toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
+                    <td data-label="Status">
                       <span className={`pill ${r.status.toLowerCase()}`}>
                         {r.status === "BUY" ? <i className="fas fa-shopping-cart"></i> : <i className="fas fa-hourglass-half"></i>} {r.status}
                       </span>
