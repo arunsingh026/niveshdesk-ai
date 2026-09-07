@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="theme-color" content="#176f57"/>
@@ -27,13 +27,11 @@
       -webkit-user-select: text;
     }
 
-    /* Prevent zoom on input focus */
-    input[type="text"],
-    input[type="number"],
-    input[type="email"],
-    select,
-    textarea {
-      font-size: 16px !important;
+    @media (max-width: 760px) {
+      input[type="text"], input[type="number"], input[type="email"],
+      input[type="tel"], input[type="password"], select, textarea {
+        font-size: 16px !important;
+      }
     }
   </style>
 </head>

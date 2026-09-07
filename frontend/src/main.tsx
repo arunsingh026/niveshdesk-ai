@@ -18,6 +18,7 @@ import "./loading-screen.css";
 import "./expenses-workspace.css";
 import "./suite-theme.css";
 import "./money-workspaces.css";
+import "./mobile-responsive.css";
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);

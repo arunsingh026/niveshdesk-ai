@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { MobileTabBar } from "./WorkspaceHeader";
 
 interface AppStatus {
   name: string;
@@ -265,6 +266,7 @@ export function Dashboard({ onLogout }: DashboardProps) {
           <p><i className="fas fa-heart" style={{color: '#ef4444'}}></i> Built with passion for productivity</p>
         </footer>
       </div>
+      <MobileTabBar />
     </div>
   );
 }
