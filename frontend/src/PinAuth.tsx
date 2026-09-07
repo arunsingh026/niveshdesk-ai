@@ -69,7 +69,7 @@ export function PinAuth({ onAuthenticated }: PinAuthProps) {
 
   return (
     <div className="pin-overlay login-workspace">
-      <div className="login-brand"><span>S</span> Stock Planner</div>
+      <div className="login-brand"><span>N</span> NiveshDesk</div>
       <div className="login-layout">
       <section className="login-intro">
         <span className="login-eyebrow">YOUR FINANCIAL WORKSPACE</span>

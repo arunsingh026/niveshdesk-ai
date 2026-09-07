@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .db import init_db,SessionLocal,engine
-from .models import Stock,ReviewRun,MonthlyExpense,ExpensePayment,SIPDatePreference,SIPDateHistory
+from .models import Stock,ReviewRun,MonthlyExpense,ExpensePayment,SIPDatePreference,SIPDateHistory,BudgetPlan,BudgetCategory,PortfolioHolding
 from datetime import date
 from .services.planner import build_recommendations
 from .services.scheduler import start_scheduler,monthly_review,daily_expense_reminder
@@ -19,6 +19,30 @@ from .services.sip_optimizer import (
 )
 from .config import settings
 from fastapi import HTTPException
+from pydantic import BaseModel,Field
+
+class BudgetCategoryInput(BaseModel):
+    name:str=Field(min_length=1,max_length=100)
+    bucket:str=Field(pattern="^(needs|wants|future)$")
+    planned_amount:float=Field(ge=0)
+    actual_amount:float=Field(ge=0)
+    icon:str="fa-receipt"
+
+class BudgetPlanInput(BaseModel):
+    income:float=Field(ge=0)
+    notes:str=""
+    categories:list[BudgetCategoryInput]=Field(default_factory=list)
+
+class HoldingInput(BaseModel):
+    name:str=Field(min_length=1,max_length=160)
+    asset_type:str=Field(min_length=1,max_length=40)
+    symbol:str=""
+    units:float|None=Field(default=None,ge=0)
+    invested_amount:float=Field(ge=0)
+    current_value:float=Field(ge=0)
+    platform:str=""
+    goal:str=""
+    notes:str=""
 @asynccontextmanager
 async def lifespan(app):
     init_db()
@@ -430,6 +454,107 @@ def fix_recurring_expenses(db:Session=Depends(get_db)):
         """))
         conn.commit()
         return {"status":"ok","updated":result.rowcount}
+
+DEFAULT_BUDGET_CATEGORIES=[
+    {"name":"Home & rent","bucket":"needs","icon":"fa-house"},
+    {"name":"Groceries","bucket":"needs","icon":"fa-basket-shopping"},
+    {"name":"Utilities & bills","bucket":"needs","icon":"fa-bolt"},
+    {"name":"Transport & fuel","bucket":"needs","icon":"fa-car"},
+    {"name":"Lifestyle","bucket":"wants","icon":"fa-mug-hot"},
+    {"name":"Shopping","bucket":"wants","icon":"fa-bag-shopping"},
+    {"name":"SIP & investments","bucket":"future","icon":"fa-seedling"},
+    {"name":"Emergency fund","bucket":"future","icon":"fa-shield-heart"},
+]
+
+def serialize_budget(plan,db):
+    if not plan:
+        return {"id":None,"income":0,"notes":"","categories":[
+            {"id":None,**item,"planned_amount":0,"actual_amount":0}
+            for item in DEFAULT_BUDGET_CATEGORIES
+        ]}
+    categories=list(db.scalars(select(BudgetCategory).where(BudgetCategory.plan_id==plan.id).order_by(BudgetCategory.id)).all())
+    return {"id":plan.id,"income":float(plan.income),"notes":plan.notes,"categories":[
+        {"id":item.id,"name":item.name,"bucket":item.bucket,"planned_amount":float(item.planned_amount),"actual_amount":float(item.actual_amount),"icon":item.icon}
+        for item in categories
+    ]}
+
+@app.get("/api/budget/summary/current")
+def current_budget_summary(db:Session=Depends(get_db)):
+    today=date.today()
+    plan=db.scalar(select(BudgetPlan).where(BudgetPlan.year==today.year,BudgetPlan.month==today.month))
+    if not plan:
+        return {"income":0,"planned":0,"spent":0,"remaining":0,"savings_rate":0}
+    categories=list(db.scalars(select(BudgetCategory).where(BudgetCategory.plan_id==plan.id)).all())
+    planned=sum(float(item.planned_amount) for item in categories)
+    spent=sum(float(item.actual_amount) for item in categories)
+    future=sum(float(item.actual_amount) for item in categories if item.bucket=="future")
+    income=float(plan.income)
+    return {"income":income,"planned":planned,"spent":spent,"remaining":income-spent,"savings_rate":round(future/income*100,1) if income else 0}
+
+@app.get("/api/budget/{year}/{month}")
+def get_budget(year:int,month:int,db:Session=Depends(get_db)):
+    if month<1 or month>12:
+        raise HTTPException(status_code=400,detail="Month must be between 1 and 12")
+    plan=db.scalar(select(BudgetPlan).where(BudgetPlan.year==year,BudgetPlan.month==month))
+    return serialize_budget(plan,db)
+
+@app.put("/api/budget/{year}/{month}")
+def save_budget(year:int,month:int,payload:BudgetPlanInput,db:Session=Depends(get_db)):
+    if month<1 or month>12:
+        raise HTTPException(status_code=400,detail="Month must be between 1 and 12")
+    plan=db.scalar(select(BudgetPlan).where(BudgetPlan.year==year,BudgetPlan.month==month))
+    if not plan:
+        plan=BudgetPlan(year=year,month=month,income=payload.income,notes=payload.notes)
+        db.add(plan); db.flush()
+    else:
+        plan.income=payload.income; plan.notes=payload.notes
+        for item in db.scalars(select(BudgetCategory).where(BudgetCategory.plan_id==plan.id)).all():
+            db.delete(item)
+    for item in payload.categories:
+        db.add(BudgetCategory(plan_id=plan.id,**item.model_dump()))
+    db.commit(); db.refresh(plan)
+    return serialize_budget(plan,db)
+
+def serialize_holding(item):
+    return {"id":item.id,"name":item.name,"asset_type":item.asset_type,"symbol":item.symbol,
+        "units":float(item.units) if item.units is not None else None,"invested_amount":float(item.invested_amount),
+        "current_value":float(item.current_value),"platform":item.platform,"goal":item.goal,"notes":item.notes,
+        "updated_at":item.updated_at.isoformat() if item.updated_at else None}
+
+@app.get("/api/portfolio/summary")
+def portfolio_summary(db:Session=Depends(get_db)):
+    holdings=list(db.scalars(select(PortfolioHolding)).all())
+    invested=sum(float(item.invested_amount) for item in holdings)
+    current=sum(float(item.current_value) for item in holdings)
+    return {"invested":invested,"current_value":current,"gain":current-invested,
+        "return_percent":round((current-invested)/invested*100,2) if invested else 0,"holdings":len(holdings)}
+
+@app.get("/api/portfolio")
+def get_portfolio(db:Session=Depends(get_db)):
+    return [serialize_holding(item) for item in db.scalars(select(PortfolioHolding).order_by(PortfolioHolding.current_value.desc())).all()]
+
+@app.post("/api/portfolio")
+def create_holding(payload:HoldingInput,db:Session=Depends(get_db)):
+    item=PortfolioHolding(**payload.model_dump())
+    db.add(item); db.commit(); db.refresh(item)
+    return serialize_holding(item)
+
+@app.put("/api/portfolio/{holding_id}")
+def update_holding(holding_id:int,payload:HoldingInput,db:Session=Depends(get_db)):
+    item=db.get(PortfolioHolding,holding_id)
+    if not item:
+        raise HTTPException(status_code=404,detail="Holding not found")
+    for key,value in payload.model_dump().items(): setattr(item,key,value)
+    db.commit(); db.refresh(item)
+    return serialize_holding(item)
+
+@app.delete("/api/portfolio/{holding_id}")
+def delete_holding(holding_id:int,db:Session=Depends(get_db)):
+    item=db.get(PortfolioHolding,holding_id)
+    if not item:
+        raise HTTPException(status_code=404,detail="Holding not found")
+    db.delete(item); db.commit()
+    return {"status":"ok"}
 # Serve the production frontend from the same origin as the API.
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles

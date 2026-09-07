@@ -20,6 +20,7 @@ export function Dashboard({ onLogout }: DashboardProps) {
   const [serverRunning, setServerRunning] = useState<"checking" | "running" | "stopped">("checking");
   const [isStarting, setIsStarting] = useState(false);
   const [isBlurred, setIsBlurred] = useState(false);
+  const [moneyPulse, setMoneyPulse] = useState({ budgetRemaining: 0, portfolioValue: 0, portfolioGain: 0, ready: false });
 
   // Use the same host as the frontend, but port 8000 for API
   const API_BASE = window.location.hostname === "localhost"
@@ -47,19 +48,19 @@ export function Dashboard({ onLogout }: DashboardProps) {
     },
     {
       name: "Budget Tracker",
-      description: "Personal budget planning tool",
+      description: "Plan every rupee with monthly budgets",
       icon: "fa-calculator",
       route: "/budget",
-      apiUrl: "",
+      apiUrl: `${API_BASE}/api/budget/summary/current`,
       color: "#8b5cf6",
       status: "inactive"
     },
     {
       name: "Investment Portfolio",
-      description: "Track all your investments",
+      description: "See every Indian asset in one wealth view",
       icon: "fa-briefcase",
       route: "/portfolio",
-      apiUrl: "",
+      apiUrl: `${API_BASE}/api/portfolio/summary`,
       color: "#f59e0b",
       status: "inactive"
     },
@@ -77,6 +78,7 @@ export function Dashboard({ onLogout }: DashboardProps) {
   useEffect(() => {
     checkServerStatus();
     checkAppsStatus();
+    loadMoneyPulse();
     const serverInterval = setInterval(checkServerStatus, 5000);
     const appsInterval = setInterval(checkAppsStatus, 5000);
     return () => {
@@ -84,6 +86,16 @@ export function Dashboard({ onLogout }: DashboardProps) {
       clearInterval(appsInterval);
     };
   }, []);
+
+  const loadMoneyPulse = async () => {
+    try {
+      const [budget, portfolio] = await Promise.all([
+        fetch(`${API_BASE}/api/budget/summary/current`).then(r => r.json()),
+        fetch(`${API_BASE}/api/portfolio/summary`).then(r => r.json())
+      ]);
+      setMoneyPulse({ budgetRemaining: Number(budget.remaining || 0), portfolioValue: Number(portfolio.current_value || 0), portfolioGain: Number(portfolio.gain || 0), ready: true });
+    } catch { /* Tool cards remain available when a summary is temporarily offline. */ }
+  };
 
   const checkServerStatus = async () => {
     try {
@@ -147,8 +159,8 @@ export function Dashboard({ onLogout }: DashboardProps) {
       <header className="dashboard-header">
         <div className="header-content">
           <div className="logo-section">
-            <span className="suite-dashboard-logo">S</span>
-            <h1>Stock Planner <span>/ Overview</span></h1>
+            <span className="suite-dashboard-logo">N</span>
+            <h1>NiveshDesk <span>/ Overview</span></h1>
           </div>
           <div className="header-controls">
             <div className="server-controls">
@@ -196,6 +208,12 @@ export function Dashboard({ onLogout }: DashboardProps) {
         <section className="dashboard-focus">
           <div><span className="focus-label">MAKE ROOM FOR WHAT MATTERS</span><h2>A little planning.<br />A clearer month ahead.</h2><p>Keep track of your monthly commitments, review your investments, and stay on top of every payment.</p><button onClick={() => navigate("/expenses")}>View monthly expenses <i className="fas fa-arrow-right" /></button></div>
           <div className="focus-illustration" aria-hidden="true"><div className="focus-orbit orbit-one" /><div className="focus-orbit orbit-two" /><div className="focus-mini"><i className="fas fa-check-circle" /><span>Plan. Track. Review.</span><div className="focus-bars"><b /><b /><b /><b /><b /><b /></div></div></div>
+        </section>
+        <section className="dashboard-money-pulse" aria-label="Financial snapshot">
+          <div><span>THIS MONTH</span><strong>{moneyPulse.ready ? `₹${moneyPulse.budgetRemaining.toLocaleString("en-IN")}` : "—"}</strong><small>budget remaining</small></div>
+          <div><span>YOUR WEALTH</span><strong>{moneyPulse.ready ? `₹${moneyPulse.portfolioValue.toLocaleString("en-IN")}` : "—"}</strong><small>portfolio value</small></div>
+          <div><span>OVERALL GROWTH</span><strong className={moneyPulse.portfolioGain < 0 ? "pulse-negative" : ""}>{moneyPulse.ready ? `${moneyPulse.portfolioGain >= 0 ? "+" : ""}₹${moneyPulse.portfolioGain.toLocaleString("en-IN")}` : "—"}</strong><small>absolute portfolio gain</small></div>
+          <button onClick={() => navigate("/portfolio")}>View wealth picture <i className="fas fa-arrow-right" /></button>
         </section>
         <div className="suite-section-heading"><h2>Your tools</h2><p>A dedicated space for every part of your finances</p></div>
 

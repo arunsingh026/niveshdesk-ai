@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import String,Integer,Numeric,Boolean,DateTime,Text,Date,ForeignKey
+from sqlalchemy import String,Integer,Numeric,Boolean,DateTime,Text,Date,ForeignKey,UniqueConstraint
 from sqlalchemy.orm import Mapped,mapped_column
 from .db import Base
 class Stock(Base):
@@ -54,3 +54,38 @@ class SIPDateHistory(Base):
     avg_nav:Mapped[Decimal]=mapped_column(Numeric(14,2))
     justification:Mapped[str]=mapped_column(Text,default="")
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+class BudgetPlan(Base):
+    __tablename__="budget_plans"
+    __table_args__=(UniqueConstraint("year","month",name="uq_budget_plan_month"),)
+    id:Mapped[int]=mapped_column(primary_key=True)
+    year:Mapped[int]=mapped_column(Integer,index=True)
+    month:Mapped[int]=mapped_column(Integer,index=True)
+    income:Mapped[Decimal]=mapped_column(Numeric(14,2),default=0)
+    notes:Mapped[str]=mapped_column(Text,default="")
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    updated_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,onupdate=datetime.utcnow)
+
+class BudgetCategory(Base):
+    __tablename__="budget_categories"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    plan_id:Mapped[int]=mapped_column(Integer,ForeignKey("budget_plans.id"),index=True)
+    name:Mapped[str]=mapped_column(String(100))
+    bucket:Mapped[str]=mapped_column(String(20),default="needs")
+    planned_amount:Mapped[Decimal]=mapped_column(Numeric(14,2),default=0)
+    actual_amount:Mapped[Decimal]=mapped_column(Numeric(14,2),default=0)
+    icon:Mapped[str]=mapped_column(String(40),default="fa-receipt")
+
+class PortfolioHolding(Base):
+    __tablename__="portfolio_holdings"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    name:Mapped[str]=mapped_column(String(160))
+    asset_type:Mapped[str]=mapped_column(String(40),index=True)
+    symbol:Mapped[str]=mapped_column(String(40),default="")
+    units:Mapped[Decimal|None]=mapped_column(Numeric(18,4),nullable=True)
+    invested_amount:Mapped[Decimal]=mapped_column(Numeric(14,2),default=0)
+    current_value:Mapped[Decimal]=mapped_column(Numeric(14,2),default=0)
+    platform:Mapped[str]=mapped_column(String(80),default="")
+    goal:Mapped[str]=mapped_column(String(100),default="")
+    notes:Mapped[str]=mapped_column(Text,default="")
+    updated_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,onupdate=datetime.utcnow)
