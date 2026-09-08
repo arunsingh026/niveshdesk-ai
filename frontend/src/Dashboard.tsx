@@ -67,7 +67,7 @@ export function Dashboard({ onLogout }: DashboardProps) {
     },
     {
       name: "Notifications",
-      description: "Email & WhatsApp alerts for stocks",
+      description: "Smart reminders, push alerts and money reports",
       icon: "fa-bell",
       route: "/notifications",
       apiUrl: `${API_BASE}/api/notifications/status`,

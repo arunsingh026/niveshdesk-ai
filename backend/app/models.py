@@ -89,3 +89,58 @@ class PortfolioHolding(Base):
     goal:Mapped[str]=mapped_column(String(100),default="")
     notes:Mapped[str]=mapped_column(Text,default="")
     updated_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,onupdate=datetime.utcnow)
+
+class NotificationPreference(Base):
+    __tablename__="notification_preferences"
+    id:Mapped[int]=mapped_column(primary_key=True,default=1)
+    email_address:Mapped[str]=mapped_column(String(254),default="")
+    email_enabled:Mapped[bool]=mapped_column(Boolean,default=False)
+    push_enabled:Mapped[bool]=mapped_column(Boolean,default=True)
+    expense_due_enabled:Mapped[bool]=mapped_column(Boolean,default=True)
+    budget_alert_enabled:Mapped[bool]=mapped_column(Boolean,default=True)
+    monthly_report_enabled:Mapped[bool]=mapped_column(Boolean,default=True)
+    failure_alerts_enabled:Mapped[bool]=mapped_column(Boolean,default=True)
+    budget_threshold:Mapped[int]=mapped_column(Integer,default=90)
+    default_lead_minutes:Mapped[int]=mapped_column(Integer,default=1440)
+    quiet_start:Mapped[int]=mapped_column(Integer,default=22)
+    quiet_end:Mapped[int]=mapped_column(Integer,default=7)
+    timezone:Mapped[str]=mapped_column(String(60),default="Asia/Kolkata")
+    updated_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,onupdate=datetime.utcnow)
+
+class NotificationReminder(Base):
+    __tablename__="notification_reminders"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    kind:Mapped[str]=mapped_column(String(30),index=True)
+    title:Mapped[str]=mapped_column(String(160))
+    details:Mapped[str]=mapped_column(Text,default="")
+    symbol:Mapped[str]=mapped_column(String(40),default="")
+    amount:Mapped[Decimal|None]=mapped_column(Numeric(14,2),nullable=True)
+    due_at:Mapped[datetime]=mapped_column(DateTime,index=True)
+    recurrence:Mapped[str]=mapped_column(String(20),default="once")
+    remind_before_minutes:Mapped[int]=mapped_column(Integer,default=1440)
+    channels:Mapped[str]=mapped_column(String(40),default="push,email")
+    enabled:Mapped[bool]=mapped_column(Boolean,default=True)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    updated_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,onupdate=datetime.utcnow)
+
+class PushDevice(Base):
+    __tablename__="push_devices"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    token:Mapped[str]=mapped_column(Text,unique=True)
+    device_label:Mapped[str]=mapped_column(String(100),default="Web browser")
+    enabled:Mapped[bool]=mapped_column(Boolean,default=True)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    last_seen_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,onupdate=datetime.utcnow)
+
+class NotificationDelivery(Base):
+    __tablename__="notification_deliveries"
+    __table_args__=(UniqueConstraint("event_key","channel",name="uq_notification_event_channel"),)
+    id:Mapped[int]=mapped_column(primary_key=True)
+    reminder_id:Mapped[int|None]=mapped_column(Integer,ForeignKey("notification_reminders.id"),nullable=True)
+    event_key:Mapped[str]=mapped_column(String(180),index=True)
+    kind:Mapped[str]=mapped_column(String(30))
+    channel:Mapped[str]=mapped_column(String(20))
+    title:Mapped[str]=mapped_column(String(160))
+    status:Mapped[str]=mapped_column(String(20),default="pending")
+    error:Mapped[str]=mapped_column(Text,default="")
+    sent_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)

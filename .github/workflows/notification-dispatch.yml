@@ -1,0 +1,35 @@
+name: Notification Dispatch
+
+on:
+  schedule:
+    # Offset from the hour to avoid peak-time scheduler congestion.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notification-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    env:
+      NOTIFICATION_CRON_TOKEN: ${{ secrets.NOTIFICATION_CRON_TOKEN }}
+    steps:
+      - name: Check and send due notifications
+        if: ${{ env.NOTIFICATION_CRON_TOKEN != '' }}
+        env:
+          APP_URL: ${{ vars.NOTIFICATION_APP_URL || 'https://arunsingh026.pythonanywhere.com' }}
+        run: |
+          curl --fail --show-error --silent \
+            --retry 2 --retry-all-errors --max-time 90 \
+            --request POST \
+            --header "X-Notification-Token: ${NOTIFICATION_CRON_TOKEN}" \
+            "${APP_URL}/api/notifications/dispatch"
+
+      - name: Explain missing scheduler secret
+        if: ${{ env.NOTIFICATION_CRON_TOKEN == '' }}
+        run: echo "Notification dispatch is paused until NOTIFICATION_CRON_TOKEN is configured."

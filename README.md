@@ -7,6 +7,7 @@ A personal monthly Indian-equity investment planner for a ₹35,000/month strate
 - Whole-share quantity calculation from latest available prices
 - Monthly scheduler (default: 5th, 09:00 Asia/Kolkata)
 - Email and WhatsApp notification adapters
+- Mobile/web Notification Center with FCM push, Resend reports, smart finance reminders, quiet hours, and delivery history
 - Manual trade execution only; no broker orders
 - PostgreSQL persistence
 - FastAPI backend + React/Vite frontend
@@ -28,3 +29,5 @@ Email can use SMTP. WhatsApp uses the official Meta Cloud API adapter. Keep `DRY
 Google documents `gmail.send` as a Gmail API scope for sending mail: https://developers.google.com/identity/protocols/oauth2/scopes
 
 This application is a planning/reminder tool, not an autonomous trading system or financial-advice engine. Verify live NSE quotes before placing orders.
+
+See `NOTIFICATIONS_SETUP.md` to connect the no-cost Firebase, Resend, and GitHub Actions notification stack.

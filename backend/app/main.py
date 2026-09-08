@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI,Depends
+from fastapi import FastAPI,Depends,Header
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .db import init_db,SessionLocal,engine
-from .models import Stock,ReviewRun,MonthlyExpense,ExpensePayment,SIPDatePreference,SIPDateHistory,BudgetPlan,BudgetCategory,PortfolioHolding
-from datetime import date
+from .models import Stock,ReviewRun,MonthlyExpense,ExpensePayment,SIPDatePreference,SIPDateHistory,BudgetPlan,BudgetCategory,PortfolioHolding,NotificationPreference,NotificationReminder,NotificationDelivery,PushDevice
+from datetime import date,datetime,timezone
+import hmac
 from .services.planner import build_recommendations
 from .services.scheduler import start_scheduler,monthly_review,daily_expense_reminder
 from .services.notifications import notification_service
@@ -18,6 +19,7 @@ from .services.sip_optimizer import (
     confirm_sip_date_change
 )
 from .config import settings
+from .services.notification_center import dispatch_due,get_preferences,provider_status,public_firebase_config
 from fastapi import HTTPException
 from pydantic import BaseModel,Field
 
@@ -43,6 +45,36 @@ class HoldingInput(BaseModel):
     platform:str=""
     goal:str=""
     notes:str=""
+
+class NotificationPreferenceInput(BaseModel):
+    email_address:str=Field(default="",max_length=254)
+    email_enabled:bool=False
+    push_enabled:bool=True
+    expense_due_enabled:bool=True
+    budget_alert_enabled:bool=True
+    monthly_report_enabled:bool=True
+    failure_alerts_enabled:bool=True
+    budget_threshold:int=Field(default=90,ge=50,le=100)
+    default_lead_minutes:int=Field(default=1440,ge=0,le=10080)
+    quiet_start:int=Field(default=22,ge=0,le=23)
+    quiet_end:int=Field(default=7,ge=0,le=23)
+    timezone:str=Field(default="Asia/Kolkata",pattern="^[A-Za-z_]+/[A-Za-z_]+$")
+
+class NotificationReminderInput(BaseModel):
+    kind:str=Field(pattern="^(stock_buy|sip|credit_card|custom)$")
+    title:str=Field(min_length=1,max_length=160)
+    details:str=Field(default="",max_length=500)
+    symbol:str=Field(default="",max_length=40)
+    amount:float|None=Field(default=None,ge=0)
+    due_at:datetime
+    recurrence:str=Field(default="once",pattern="^(once|weekly|monthly)$")
+    remind_before_minutes:int=Field(default=1440,ge=0,le=10080)
+    channels:list[str]=Field(default_factory=lambda:["push","email"])
+    enabled:bool=True
+
+class PushDeviceInput(BaseModel):
+    token:str=Field(min_length=20,max_length=4096)
+    device_label:str=Field(default="Web browser",max_length=100)
 @asynccontextmanager
 async def lifespan(app):
     init_db()
@@ -129,15 +161,103 @@ def send_notifications(stock_budget:int=35000,mf_budget:int=30000,db:Session=Dep
     result=notification_service.send_stock_recommendations(recommendations,total_budget)
     return {"status":"completed","result":result}
 @app.get("/api/notifications/status")
-def notification_status():
-    return {
-        "email_enabled":notification_service.enable_email,
-        "email_configured":bool(notification_service.smtp_user and notification_service.smtp_password),
-        "whatsapp_enabled":notification_service.enable_whatsapp,
-        "whatsapp_configured":bool(notification_service.twilio_account_sid and notification_service.twilio_auth_token),
-        "telegram_enabled":notification_service.enable_telegram,
-        "telegram_configured":bool(notification_service.telegram_bot_token and notification_service.telegram_chat_id)
-    }
+def notification_status(db:Session=Depends(get_db)):
+    return provider_status(db)
+
+def serialize_notification_preferences(item:NotificationPreference):
+    return {key:getattr(item,key) for key in (
+        "email_address","email_enabled","push_enabled","expense_due_enabled","budget_alert_enabled",
+        "monthly_report_enabled","failure_alerts_enabled","budget_threshold","default_lead_minutes",
+        "quiet_start","quiet_end","timezone"
+    )}
+
+def serialize_reminder(item:NotificationReminder):
+    return {"id":item.id,"kind":item.kind,"title":item.title,"details":item.details,"symbol":item.symbol,
+        "amount":float(item.amount) if item.amount is not None else None,
+        "due_at":item.due_at.isoformat()+"Z","recurrence":item.recurrence,
+        "remind_before_minutes":item.remind_before_minutes,"channels":[value for value in item.channels.split(",") if value],
+        "enabled":item.enabled}
+
+def normalize_due_at(value:datetime):
+    if value.tzinfo:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+def validate_channels(channels:list[str]):
+    cleaned=list(dict.fromkeys(channels))
+    if not cleaned or any(channel not in {"push","email"} for channel in cleaned):
+        raise HTTPException(status_code=400,detail="Choose push, email, or both")
+    return cleaned
+
+@app.get("/api/notifications/overview")
+def notification_overview(db:Session=Depends(get_db)):
+    preferences=get_preferences(db)
+    reminders=list(db.scalars(select(NotificationReminder).order_by(NotificationReminder.enabled.desc(),NotificationReminder.due_at)).all())
+    deliveries=list(db.scalars(select(NotificationDelivery).order_by(NotificationDelivery.sent_at.desc()).limit(20)).all())
+    return {"status":provider_status(db),"preferences":serialize_notification_preferences(preferences),
+        "reminders":[serialize_reminder(item) for item in reminders],
+        "deliveries":[{"id":item.id,"kind":item.kind,"channel":item.channel,"title":item.title,"status":item.status,
+            "error":item.error,"sent_at":item.sent_at.isoformat()+"Z"} for item in deliveries]}
+
+@app.put("/api/notifications/preferences")
+def save_notification_preferences(payload:NotificationPreferenceInput,db:Session=Depends(get_db)):
+    item=get_preferences(db)
+    for key,value in payload.model_dump().items(): setattr(item,key,value)
+    db.commit(); db.refresh(item)
+    return serialize_notification_preferences(item)
+
+@app.post("/api/notifications/reminders")
+def create_notification_reminder(payload:NotificationReminderInput,db:Session=Depends(get_db)):
+    data=payload.model_dump(); data["due_at"]=normalize_due_at(data["due_at"])
+    data["channels"]=",".join(validate_channels(data["channels"]))
+    item=NotificationReminder(**data); db.add(item); db.commit(); db.refresh(item)
+    return serialize_reminder(item)
+
+@app.put("/api/notifications/reminders/{reminder_id}")
+def update_notification_reminder(reminder_id:int,payload:NotificationReminderInput,db:Session=Depends(get_db)):
+    item=db.get(NotificationReminder,reminder_id)
+    if not item: raise HTTPException(status_code=404,detail="Reminder not found")
+    data=payload.model_dump(); data["due_at"]=normalize_due_at(data["due_at"])
+    data["channels"]=",".join(validate_channels(data["channels"]))
+    for key,value in data.items(): setattr(item,key,value)
+    db.commit(); db.refresh(item)
+    return serialize_reminder(item)
+
+@app.delete("/api/notifications/reminders/{reminder_id}")
+def delete_notification_reminder(reminder_id:int,db:Session=Depends(get_db)):
+    item=db.get(NotificationReminder,reminder_id)
+    if not item: raise HTTPException(status_code=404,detail="Reminder not found")
+    for delivery in db.scalars(select(NotificationDelivery).where(NotificationDelivery.reminder_id==reminder_id)).all():
+        delivery.reminder_id=None
+    db.delete(item); db.commit()
+    return {"status":"ok"}
+
+@app.get("/api/notifications/firebase-config")
+def firebase_config():
+    return public_firebase_config()
+
+@app.post("/api/notifications/devices")
+def register_push_device(payload:PushDeviceInput,db:Session=Depends(get_db)):
+    item=db.scalar(select(PushDevice).where(PushDevice.token==payload.token))
+    if item:
+        item.enabled=True; item.device_label=payload.device_label; item.last_seen_at=datetime.utcnow()
+    else:
+        item=PushDevice(token=payload.token,device_label=payload.device_label); db.add(item)
+    db.commit(); db.refresh(item)
+    return {"id":item.id,"device_label":item.device_label,"enabled":item.enabled}
+
+@app.delete("/api/notifications/devices")
+def unregister_push_device(payload:PushDeviceInput,db:Session=Depends(get_db)):
+    item=db.scalar(select(PushDevice).where(PushDevice.token==payload.token))
+    if item: item.enabled=False; db.commit()
+    return {"status":"ok"}
+
+@app.post("/api/notifications/dispatch")
+def run_notification_dispatch(x_notification_token:str|None=Header(default=None),db:Session=Depends(get_db)):
+    expected=settings.notification_cron_token
+    if not expected or not x_notification_token or not hmac.compare_digest(expected,x_notification_token):
+        raise HTTPException(status_code=401,detail="Invalid notification scheduler token")
+    return dispatch_due(db)
 
 @app.get("/api/expenses")
 def get_expenses(db:Session=Depends(get_db)):
