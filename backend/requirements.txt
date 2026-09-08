@@ -11,3 +11,4 @@ pytest==8.4.1
 twilio==9.4.0
 jinja2==3.1.6
 a2wsgi==1.10.10
+google-auth==2.40.3
