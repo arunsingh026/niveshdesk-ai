@@ -33,5 +33,6 @@ class Settings(BaseSettings):
     firebase_messaging_sender_id: str = ""
     firebase_app_id: str = ""
     firebase_vapid_key: str = ""
+    notification_test_cooldown_seconds: int = 10
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 settings = Settings()

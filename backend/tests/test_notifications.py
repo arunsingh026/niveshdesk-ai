@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
@@ -13,14 +13,16 @@ from app.db import Base
 from app.main import (
     NotificationPreferenceInput,
     NotificationReminderInput,
+    NotificationTestInput,
     PushDeviceInput,
     create_notification_reminder,
     notification_overview,
     register_push_device,
     run_notification_dispatch,
     save_notification_preferences,
+    test_notification as run_test_notification,
 )
-from app.models import NotificationReminder
+from app.models import NotificationDelivery, NotificationDispatchRun, NotificationReminder
 from app.services import notification_center
 
 
@@ -89,3 +91,51 @@ def test_firebase_public_config_never_contains_private_json(monkeypatch):
     config = notification_center.public_firebase_config()
     assert "service" not in " ".join(config.keys()).lower()
     assert "secret" not in str(config)
+
+
+def test_immediate_push_test_targets_registered_device_and_records_receipt(monkeypatch):
+    db = session()
+    register_push_device(PushDeviceInput(token="registered-iphone-device-token", device_label="iPhone PWA"), db)
+    monkeypatch.setattr(settings, "firebase_service_account_json", "{}")
+    monkeypatch.setattr(settings, "firebase_project_id", "niveshdesk-test")
+    captured = {}
+    monkeypatch.setattr(notification_center, "_send_push", lambda title, body, tokens, link: (captured.update(tokens=tokens, link=link) or True, ""))
+
+    result = run_test_notification(NotificationTestInput(
+        channel="push", device_token="registered-iphone-device-token"
+    ), db)
+    receipt = db.scalar(select(NotificationDelivery))
+    assert result["status"] == "sent"
+    assert captured["tokens"] == ["registered-iphone-device-token"]
+    assert receipt.kind == "test" and receipt.status == "sent"
+
+
+def test_scheduled_test_runs_through_reminder_scheduler(monkeypatch):
+    db = session()
+    register_push_device(PushDeviceInput(token="scheduled-iphone-device-token", device_label="iPhone PWA"), db)
+    monkeypatch.setattr(settings, "firebase_service_account_json", "{}")
+    monkeypatch.setattr(settings, "firebase_project_id", "niveshdesk-test")
+    monkeypatch.setattr(notification_center, "_send_push", lambda *args: (True, ""))
+    before = datetime.utcnow()
+    result = run_test_notification(NotificationTestInput(channel="push", delay_minutes=1), db)
+
+    dispatch = notification_center.dispatch_due(db, now=before + timedelta(minutes=2), source="test")
+    reminder = db.get(NotificationReminder, result["reminder_id"])
+    run = db.scalar(select(NotificationDispatchRun))
+    assert result["status"] == "scheduled"
+    assert dispatch["events"] == 1
+    assert reminder.enabled is False
+    assert run.source == "test" and run.status == "completed"
+
+
+def test_immediate_email_test_uses_resend_and_records_failure_free_result(monkeypatch):
+    db = session()
+    save_notification_preferences(preferences(email_address="owner@example.com"), db)
+    monkeypatch.setattr(settings, "resend_api_key", "configured-not-returned")
+    monkeypatch.setattr(notification_center, "_send_email", lambda *args: (True, ""))
+    result = run_test_notification(NotificationTestInput(channel="email"), db)
+
+    overview = notification_overview(db)
+    assert result["status"] == "sent"
+    assert overview["status"]["email"]["configured"] is True
+    assert "configured-not-returned" not in str(overview)

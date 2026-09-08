@@ -19,7 +19,7 @@ from .services.sip_optimizer import (
     confirm_sip_date_change
 )
 from .config import settings
-from .services.notification_center import dispatch_due,get_preferences,provider_status,public_firebase_config
+from .services.notification_center import dispatch_due,get_preferences,provider_status,public_firebase_config,send_test_notification,schedule_test_notification
 from fastapi import HTTPException
 from pydantic import BaseModel,Field
 
@@ -75,6 +75,11 @@ class NotificationReminderInput(BaseModel):
 class PushDeviceInput(BaseModel):
     token:str=Field(min_length=20,max_length=4096)
     device_label:str=Field(default="Web browser",max_length=100)
+
+class NotificationTestInput(BaseModel):
+    channel:str=Field(pattern="^(push|email)$")
+    delay_minutes:int=Field(default=0)
+    device_token:str=Field(default="",max_length=4096)
 @asynccontextmanager
 async def lifespan(app):
     init_db()
@@ -194,8 +199,10 @@ def notification_overview(db:Session=Depends(get_db)):
     preferences=get_preferences(db)
     reminders=list(db.scalars(select(NotificationReminder).order_by(NotificationReminder.enabled.desc(),NotificationReminder.due_at)).all())
     deliveries=list(db.scalars(select(NotificationDelivery).order_by(NotificationDelivery.sent_at.desc()).limit(20)).all())
+    devices=list(db.scalars(select(PushDevice).where(PushDevice.enabled.is_(True)).order_by(PushDevice.last_seen_at.desc())).all())
     return {"status":provider_status(db),"preferences":serialize_notification_preferences(preferences),
         "reminders":[serialize_reminder(item) for item in reminders],
+        "devices":[{"id":item.id,"label":item.device_label,"last_seen_at":item.last_seen_at.isoformat()+"Z"} for item in devices],
         "deliveries":[{"id":item.id,"kind":item.kind,"channel":item.channel,"title":item.title,"status":item.status,
             "error":item.error,"sent_at":item.sent_at.isoformat()+"Z"} for item in deliveries]}
 
@@ -252,12 +259,30 @@ def unregister_push_device(payload:PushDeviceInput,db:Session=Depends(get_db)):
     if item: item.enabled=False; db.commit()
     return {"status":"ok"}
 
+@app.post("/api/notifications/test")
+def test_notification(payload:NotificationTestInput,db:Session=Depends(get_db)):
+    try:
+        if payload.delay_minutes == 0:
+            return send_test_notification(db,payload.channel,payload.device_token)
+        reminder=schedule_test_notification(db,payload.channel,payload.delay_minutes)
+        return {"status":"scheduled","channel":payload.channel,"delay_minutes":payload.delay_minutes,
+            "reminder_id":reminder.id,"due_at":reminder.due_at.isoformat()+"Z"}
+    except ValueError as exc:
+        raise HTTPException(status_code=400,detail=str(exc)) from exc
+
+@app.get("/api/notifications/history")
+def notification_history(limit:int=20,db:Session=Depends(get_db)):
+    safe_limit=max(1,min(limit,100))
+    deliveries=list(db.scalars(select(NotificationDelivery).order_by(NotificationDelivery.sent_at.desc()).limit(safe_limit)).all())
+    return [{"id":item.id,"kind":item.kind,"channel":item.channel,"title":item.title,"status":item.status,
+        "error":item.error,"sent_at":item.sent_at.isoformat()+"Z"} for item in deliveries]
+
 @app.post("/api/notifications/dispatch")
 def run_notification_dispatch(x_notification_token:str|None=Header(default=None),db:Session=Depends(get_db)):
     expected=settings.notification_cron_token
     if not expected or not x_notification_token or not hmac.compare_digest(expected,x_notification_token):
         raise HTTPException(status_code=401,detail="Invalid notification scheduler token")
-    return dispatch_due(db)
+    return dispatch_due(db,source="github_actions")
 
 @app.get("/api/expenses")
 def get_expenses(db:Session=Depends(get_db)):

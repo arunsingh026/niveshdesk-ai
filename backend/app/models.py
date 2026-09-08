@@ -144,3 +144,12 @@ class NotificationDelivery(Base):
     status:Mapped[str]=mapped_column(String(20),default="pending")
     error:Mapped[str]=mapped_column(Text,default="")
     sent_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+class NotificationDispatchRun(Base):
+    __tablename__="notification_dispatch_runs"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    source:Mapped[str]=mapped_column(String(30),default="in_app",index=True)
+    status:Mapped[str]=mapped_column(String(30),default="completed")
+    events:Mapped[int]=mapped_column(Integer,default=0)
+    error:Mapped[str]=mapped_column(Text,default="")
+    checked_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,index=True)

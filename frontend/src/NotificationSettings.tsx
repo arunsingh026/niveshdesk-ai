@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { WorkspaceHeader } from "./WorkspaceHeader";
+import type { PushDeviceStatus } from "./push-notifications";
 
 const API = window.location.hostname === "localhost" ? "http://localhost:8000" : window.location.origin;
 const kinds = {
@@ -20,9 +21,15 @@ type Reminder = {
   due_at: string; recurrence: "once" | "weekly" | "monthly"; remind_before_minutes: number; channels: string[]; enabled: boolean;
 };
 type Delivery = { id: number; kind: string; channel: string; title: string; status: string; error: string; sent_at: string };
+type Device = { id: number; label: string; last_seen_at: string };
 type Overview = {
-  status: { push: { enabled: boolean; configured: boolean; devices: number }; email: { enabled: boolean; configured: boolean; address: string }; scheduler: { configured: boolean; frequency: string }; free_tier: boolean };
-  preferences: Preferences; reminders: Reminder[]; deliveries: Delivery[];
+  status: {
+    push: { enabled: boolean; configured: boolean; devices: number };
+    email: { enabled: boolean; configured: boolean; address: string };
+    scheduler: { configured: boolean; frequency: string; in_app_enabled: boolean; in_app_healthy: boolean; hourly_fallback_enabled: boolean; last_check_at: string | null; last_check_status: string; last_check_source: string };
+    last_delivery: Omit<Delivery, "id" | "kind"> | null; free_tier: boolean;
+  };
+  preferences: Preferences; reminders: Reminder[]; deliveries: Delivery[]; devices: Device[];
 };
 
 const toLocalInput = (value?: string) => {
@@ -42,6 +49,8 @@ export function NotificationSettings({ onLogout }: { onLogout?: () => void }) {
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Reminder | null>(null);
+  const [testBusy, setTestBusy] = useState("");
+  const [deviceStatus, setDeviceStatus] = useState<PushDeviceStatus | null>(null);
   const [form, setForm] = useState({ kind: "sip" as ReminderKind, title: "", details: "", symbol: "", amount: "", due_at: toLocalInput(), recurrence: "monthly", remind_before_minutes: 1440, push: true, email: true });
 
   const loadOverview = async () => {
@@ -53,7 +62,11 @@ export function NotificationSettings({ onLogout }: { onLogout?: () => void }) {
       setMessage(error instanceof Error ? error.message : "Unable to load notifications");
     } finally { setLoading(false); }
   };
-  useEffect(() => { loadOverview(); }, []);
+  const refreshDeviceStatus = async () => {
+    const { getPushDeviceStatus } = await import("./push-notifications");
+    setDeviceStatus(await getPushDeviceStatus());
+  };
+  useEffect(() => { loadOverview(); refreshDeviceStatus(); }, []);
 
   const upcoming = useMemo(() => (overview?.reminders || []).filter(item => item.enabled).sort((a, b) => +new Date(a.due_at) - +new Date(b.due_at)), [overview]);
 
@@ -65,7 +78,24 @@ export function NotificationSettings({ onLogout }: { onLogout?: () => void }) {
       if (!response.ok) throw new Error("Could not save preferences");
       setMessage(notice);
       await loadOverview();
+      await refreshDeviceStatus();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save preferences"); }
+  };
+
+  const runTest = async (channel: "push" | "email", delayMinutes = 0) => {
+    const action = `${channel}-${delayMinutes}`;
+    setTestBusy(action); setMessage("");
+    try {
+      const response = await fetch(`${API}/api/notifications/test`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel, delay_minutes: delayMinutes, device_token: channel === "push" ? localStorage.getItem("niveshdesk_push_token") || "" : "" }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "Notification test failed");
+      setMessage(delayMinutes ? `${channel === "push" ? "Push" : "Email"} test scheduled for ${delayMinutes} minute${delayMinutes > 1 ? "s" : ""} from now.` : result.status === "sent" ? `${channel === "push" ? "Push" : "Email"} test sent successfully.` : result.message || "Notification test failed");
+      await loadOverview();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Notification test failed"); }
+    finally { setTestBusy(""); }
   };
 
   const toggle = (key: keyof Preferences) => {
@@ -85,6 +115,7 @@ export function NotificationSettings({ onLogout }: { onLogout?: () => void }) {
       else if (reason === "denied") setMessage("Notifications are blocked in this browser. Allow them in site settings and try again.");
       else setMessage("This browser does not support web push notifications.");
       await loadOverview();
+      await refreshDeviceStatus();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not enable push notifications"); }
     finally { setSaving(false); }
   };
@@ -128,7 +159,34 @@ export function NotificationSettings({ onLogout }: { onLogout?: () => void }) {
         <section className="channel-grid" aria-label="Delivery channels">
           <article className="channel-card"><div className="channel-icon push"><i className="fas fa-mobile-screen-button" /></div><div><span className="channel-label">MOBILE & WEB</span><h2>Push alerts</h2><p>Instant reminders, even when NiveshDesk is closed.</p></div><div className="channel-footer"><span className={`live-pill ${overview.status.push.configured && overview.status.push.devices ? "active" : ""}`}><i className="fas fa-circle" /> {overview.status.push.devices ? `${overview.status.push.devices} device connected` : overview.status.push.configured ? "Ready to connect" : "Setup needed"}</span><button onClick={enablePush} disabled={saving}>{overview.status.push.devices ? "Add this device" : "Enable alerts"}</button></div></article>
           <article className="channel-card"><div className="channel-icon email"><i className="fas fa-envelope-open-text" /></div><div><span className="channel-label">MONTHLY DIGESTS</span><h2>Email by Resend</h2><p>Beautiful portfolio reports and important failure alerts.</p></div><div className="email-control"><input type="email" aria-label="Notification email" placeholder="you@example.com" value={overview.preferences.email_address} onChange={event => setOverview({ ...overview, preferences: { ...overview.preferences, email_address: event.target.value } })} /><button onClick={() => savePreferences({ ...overview.preferences, email_enabled: Boolean(overview.preferences.email_address) }, "Email preferences saved")}>Save</button></div><span className={`live-pill ${overview.status.email.configured ? "active" : ""}`}><i className="fas fa-circle" /> {overview.status.email.configured ? "Email active" : "Resend setup needed"}</span></article>
-          <article className="channel-card scheduler-card"><div className="channel-icon schedule"><i className="fas fa-clock" /></div><div><span className="channel-label">AUTOMATIC CHECKS</span><h2>Hourly smart check</h2><p>GitHub Actions checks due items without a paid background worker.</p></div><div className="channel-footer"><span className={`live-pill ${overview.status.scheduler.configured ? "active" : ""}`}><i className="fas fa-circle" /> {overview.status.scheduler.configured ? "Scheduler protected" : "Secret needed"}</span><b>₹0 / month</b></div></article>
+          <article className="channel-card scheduler-card"><div className="channel-icon schedule"><i className="fas fa-clock" /></div><div><span className="channel-label">AUTOMATIC CHECKS</span><h2>Smart reminder engine</h2><p>Checks every minute in the app, with GitHub Actions as an hourly fallback.</p></div><div className="channel-footer"><span className={`live-pill ${overview.status.scheduler.configured ? "active" : ""}`}><i className="fas fa-circle" /> {overview.status.scheduler.configured ? "Fallback protected" : "Secret needed"}</span><b>₹0 / month</b></div></article>
+        </section>
+
+        <section className="notification-test-center" aria-labelledby="test-center-title">
+          <div className="test-center-head">
+            <div><span className="notification-kicker">LIVE DIAGNOSTICS</span><h2 id="test-center-title">Notification Test Center</h2><p>Prove every part of delivery from this device—now or after a short scheduler delay.</p></div>
+            <button className="refresh-status" onClick={() => { loadOverview(); refreshDeviceStatus(); }}><i className="fas fa-rotate" /> Refresh status</button>
+          </div>
+          <div className="test-center-layout">
+            <div className="test-actions">
+              <article className="test-action-card primary-test"><i className="fas fa-bolt" /><div><span>RIGHT NOW</span><h3>Immediate push test</h3><p>Sends a real Firebase message to this registered browser or iPhone.</p></div><button disabled={Boolean(testBusy) || !deviceStatus?.tokenPresent} onClick={() => runTest("push")}>{testBusy === "push-0" ? "Sending…" : "Send push now"}</button>{!deviceStatus?.tokenPresent && <small>Enable alerts on this device first.</small>}</article>
+              <article className="test-action-card"><i className="fas fa-stopwatch" /><div><span>SCHEDULER CHECK</span><h3>Scheduled push test</h3><p>Creates a one-time reminder and lets the minute scheduler deliver it.</p></div><div className="delay-buttons">{[1, 2, 5].map(delay => <button key={delay} disabled={Boolean(testBusy) || !deviceStatus?.tokenPresent} onClick={() => runTest("push", delay)}>{testBusy === `push-${delay}` ? "Scheduling…" : `${delay} min`}</button>)}</div></article>
+              <article className="test-action-card"><i className="fas fa-paper-plane" /><div><span>RESEND CHECK</span><h3>Email delivery test</h3><p>Sends a branded test receipt to {overview.preferences.email_address || "your saved email"}.</p></div><button disabled={Boolean(testBusy) || !overview.status.email.configured || !overview.preferences.email_address} onClick={() => runTest("email")}>{testBusy === "email-0" ? "Sending…" : "Send test email"}</button>{!overview.status.email.configured && <small>Resend must be configured on the server.</small>}</article>
+            </div>
+            <aside className="diagnostic-card">
+              <div className="diagnostic-title"><div><span>SYSTEM HEALTH</span><h3>Delivery readiness</h3></div><b className={overview.status.push.configured && overview.status.email.configured && overview.status.scheduler.in_app_healthy ? "healthy" : "attention"}>{overview.status.push.configured && overview.status.scheduler.in_app_healthy ? "Online" : "Needs attention"}</b></div>
+              <StatusRow icon="fa-fire-flame-curved" label="Firebase FCM" value={overview.status.push.configured ? "Configured" : "Setup needed"} ok={overview.status.push.configured} />
+              <StatusRow icon="fa-mobile-screen" label="Device permission" value={deviceStatus?.permission === "granted" ? "Allowed" : deviceStatus?.permission === "denied" ? "Blocked" : deviceStatus?.permission === "unsupported" ? "Unsupported" : "Not requested"} ok={deviceStatus?.permission === "granted"} />
+              {deviceStatus?.ios && <StatusRow icon="fa-arrow-up-from-bracket" label="iPhone install" value={deviceStatus.installed ? "Home Screen app" : "Add to Home Screen"} ok={deviceStatus.installed} />}
+              <StatusRow icon="fa-link" label="This device token" value={deviceStatus?.tokenPresent ? "Registered" : "Not registered"} ok={Boolean(deviceStatus?.tokenPresent)} />
+              <StatusRow icon="fa-envelope" label="Resend email" value={overview.status.email.configured ? "Configured" : "Setup needed"} ok={overview.status.email.configured} />
+              <StatusRow icon="fa-clock-rotate-left" label="Minute scheduler" value={overview.status.scheduler.in_app_healthy ? "Running" : overview.status.scheduler.last_check_at ? "Needs attention" : "Starting"} ok={overview.status.scheduler.in_app_healthy} />
+              <StatusRow icon="fa-github" label="Hourly fallback" value={overview.status.scheduler.hourly_fallback_enabled ? "Protected" : "Secret needed"} ok={overview.status.scheduler.hourly_fallback_enabled} />
+              <div className="last-check"><span>LAST SCHEDULER CHECK</span><strong>{overview.status.scheduler.last_check_at ? new Date(overview.status.scheduler.last_check_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Waiting for first run"}</strong><small>{overview.status.scheduler.last_check_source || "in-app scheduler"} · {overview.status.scheduler.last_check_status}</small></div>
+              <div className="last-delivery"><span>LAST DELIVERY RESULT</span>{overview.status.last_delivery ? <><strong className={overview.status.last_delivery.status}>{overview.status.last_delivery.status === "sent" ? "Delivered" : "Failed"} via {overview.status.last_delivery.channel}</strong><small>{overview.status.last_delivery.title} · {new Date(overview.status.last_delivery.sent_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</small>{overview.status.last_delivery.error && <em>{overview.status.last_delivery.error}</em>}</> : <strong>No delivery attempts yet</strong>}</div>
+              {overview.devices.length > 0 && <div className="device-list"><span>REGISTERED DEVICES</span>{overview.devices.map(device => <div key={device.id}><i className="fas fa-mobile-screen-button" /><p><strong>{device.label}</strong><small>Seen {new Date(device.last_seen_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</small></p></div>)}</div>}
+            </aside>
+          </div>
         </section>
 
         <div className="notification-main-grid">
@@ -145,7 +203,7 @@ export function NotificationSettings({ onLogout }: { onLogout?: () => void }) {
               <Automation icon="fa-triangle-exclamation" title="Failure alerts" detail="Know when delivery fails" active={overview.preferences.failure_alerts_enabled} onClick={() => toggle("failure_alerts_enabled")} />
             </div><div className="rule-settings"><label>Budget alert<select value={overview.preferences.budget_threshold} onChange={event => savePreferences({ ...overview.preferences, budget_threshold: Number(event.target.value) })}><option value="75">At 75%</option><option value="80">At 80%</option><option value="90">At 90%</option><option value="100">At 100%</option></select></label><label>Bill heads-up<select value={overview.preferences.default_lead_minutes} onChange={event => savePreferences({ ...overview.preferences, default_lead_minutes: Number(event.target.value) })}><option value="1440">1 day</option><option value="4320">3 days</option><option value="10080">7 days</option></select></label></div><div className="quiet-hours"><i className="fas fa-moon" /><div><strong>Quiet hours</strong><span>{overview.preferences.quiet_start}:00 – {overview.preferences.quiet_end}:00 IST</span></div></div></section>
 
-            <section className="notification-panel"><div className="panel-heading"><div><span>RECENT ACTIVITY</span><h2>Delivery history</h2></div></div>{overview.deliveries.length ? <div className="delivery-list">{overview.deliveries.slice(0, 6).map(item => <div key={item.id}><i className={`fas ${item.status === "sent" ? "fa-check" : "fa-exclamation"}`} /><p><strong>{item.title}</strong><span>{item.channel} · {new Date(item.sent_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span></p><b className={item.status}>{item.status}</b></div>)}</div> : <p className="history-empty">Your delivery receipts will appear here.</p>}</section>
+            <section className="notification-panel"><div className="panel-heading"><div><span>RECENT ACTIVITY</span><h2>Notification history</h2></div><button onClick={loadOverview} aria-label="Refresh notification history"><i className="fas fa-rotate" /></button></div>{overview.deliveries.length ? <div className="delivery-list">{overview.deliveries.slice(0, 20).map(item => <div key={item.id}><i className={`fas ${item.status === "sent" ? "fa-check" : "fa-exclamation"}`} /><p><strong>{item.title}</strong><span>{item.channel} · {new Date(item.sent_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>{item.error && <em>{item.error}</em>}</p><b className={item.status}>{item.status}</b></div>)}</div> : <p className="history-empty">Your delivery receipts will appear here.</p>}</section>
           </aside>
         </div>
       </>}
@@ -166,4 +224,8 @@ export function NotificationSettings({ onLogout }: { onLogout?: () => void }) {
 
 function Automation({ icon, title, detail, active, onClick }: { icon: string; title: string; detail: string; active: boolean; onClick: () => void }) {
   return <button className="automation-row" onClick={onClick} aria-pressed={active}><i className={`fas ${icon}`} /><span><strong>{title}</strong><small>{detail}</small></span><b className={`toggle ${active ? "on" : ""}`}><i /></b></button>;
+}
+
+function StatusRow({ icon, label, value, ok }: { icon: string; label: string; value: string; ok: boolean }) {
+  return <div className="status-row"><i className={`fas ${icon}`} /><span>{label}</span><strong className={ok ? "ok" : "warn"}><i className={`fas ${ok ? "fa-circle-check" : "fa-circle-exclamation"}`} /> {value}</strong></div>;
 }

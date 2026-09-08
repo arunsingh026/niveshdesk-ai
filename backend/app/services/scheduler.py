@@ -1,7 +1,8 @@
-from datetime import datetime,date
+from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
 from ..config import settings
 from ..db import SessionLocal
@@ -75,10 +76,23 @@ def daily_expense_reminder():
             except Exception as e:
                 print(f"Failed to send expense reminders: {e}")
 
+def notification_smart_check():
+    """Process due finance alerts every minute; GitHub Actions remains the external fallback."""
+    with SessionLocal() as db:
+        try:
+            from .notification_center import dispatch_due
+            dispatch_due(db, source="in_app")
+        except Exception as exc:
+            db.rollback()
+            from .notification_center import _record_dispatch_run
+            _record_dispatch_run(db, "in_app", "failed", 0, str(exc))
+
 def start_scheduler():
     scheduler.add_job(monthly_review,CronTrigger(day=settings.investment_day,hour=settings.reminder_hour,minute=settings.reminder_minute),id="monthly-review",replace_existing=True,misfire_grace_time=3600)
     # First reminder at 11:00 AM
     scheduler.add_job(daily_expense_reminder,CronTrigger(hour=11,minute=0),id="daily-expense-reminder-morning",replace_existing=True,misfire_grace_time=3600)
     # Second reminder at 3:00 PM
     scheduler.add_job(daily_expense_reminder,CronTrigger(hour=15,minute=0),id="daily-expense-reminder-afternoon",replace_existing=True,misfire_grace_time=3600)
-    scheduler.start()
+    scheduler.add_job(notification_smart_check,IntervalTrigger(minutes=1),id="notification-smart-check",replace_existing=True,coalesce=True,max_instances=1,misfire_grace_time=120,next_run_time=datetime.now()+timedelta(seconds=10))
+    if not scheduler.running:
+        scheduler.start()

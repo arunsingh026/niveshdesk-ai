@@ -1,6 +1,6 @@
 # NiveshDesk notification setup (free tier)
 
-The Notification Center stores reminders in the existing NiveshDesk database. An hourly GitHub Actions workflow securely asks the live API to dispatch due items. The API sends browser/mobile web push through Firebase Cloud Messaging (FCM) and reports through Resend.
+The Notification Center stores reminders in the existing NiveshDesk database. Its in-app scheduler checks due reminders every minute, while an hourly GitHub Actions workflow provides a protected fallback. The API sends browser/mobile web push through Firebase Cloud Messaging (FCM) and reports through Resend.
 
 ## 1. Create the provider accounts
 
@@ -39,9 +39,13 @@ In **Repository → Settings → Secrets and variables → Actions**:
 
 Run **Notification Dispatch → Run workflow** once to verify the protected endpoint.
 
+The workflow deliberately fails when the secret is absent, when the live health check fails, or when the dispatch endpoint returns an unexpected result. This makes scheduler failures visible in GitHub Actions instead of silently skipping them.
+
 ## 4. Connect devices
 
 - Desktop/Android: open Notification Center and select **Enable alerts**.
 - iPhone/iPad: in Safari choose **Share → Add to Home Screen**, open the installed NiveshDesk app, then select **Enable alerts**. Apple only allows web push permission for Home Screen web apps.
+
+Open **Notifications → Notification Test Center** to send an immediate push, schedule a 1/2/5-minute push, send a Resend email, and inspect device permission, scheduler health, the last delivery receipt, and notification history.
 
 Provider secrets remain server-side. Firebase web configuration and the VAPID public key are intentionally public identifiers; the service-account JSON and Resend API key are never returned by the API.

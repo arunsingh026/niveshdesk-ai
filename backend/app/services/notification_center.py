@@ -1,5 +1,6 @@
 import calendar
 import json
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from html import escape
 from typing import Any
@@ -18,6 +19,7 @@ from ..models import (
     ExpensePayment,
     MonthlyExpense,
     NotificationDelivery,
+    NotificationDispatchRun,
     NotificationPreference,
     NotificationReminder,
     PortfolioHolding,
@@ -45,6 +47,13 @@ def provider_status(db: Session) -> dict[str, Any]:
         and settings.firebase_messaging_sender_id
         and settings.firebase_vapid_key
     )
+    last_run = db.scalar(select(NotificationDispatchRun).order_by(NotificationDispatchRun.checked_at.desc()))
+    last_in_app_run = db.scalar(select(NotificationDispatchRun).where(
+        NotificationDispatchRun.source == "in_app"
+    ).order_by(NotificationDispatchRun.checked_at.desc()))
+    last_delivery = db.scalar(select(NotificationDelivery).order_by(NotificationDelivery.sent_at.desc()))
+    in_app_healthy = bool(last_in_app_run and last_in_app_run.status != "failed" and
+        (datetime.utcnow() - last_in_app_run.checked_at).total_seconds() < 180)
     return {
         "push": {
             "enabled": preference.push_enabled,
@@ -58,8 +67,21 @@ def provider_status(db: Session) -> dict[str, Any]:
         },
         "scheduler": {
             "configured": bool(settings.notification_cron_token),
-            "frequency": "Hourly",
+            "frequency": "Every minute + hourly fallback",
+            "in_app_enabled": True,
+            "in_app_healthy": in_app_healthy,
+            "hourly_fallback_enabled": bool(settings.notification_cron_token),
+            "last_check_at": last_run.checked_at.isoformat() + "Z" if last_run else None,
+            "last_check_status": last_run.status if last_run else "waiting",
+            "last_check_source": last_run.source if last_run else "",
         },
+        "last_delivery": {
+            "status": last_delivery.status,
+            "channel": last_delivery.channel,
+            "title": last_delivery.title,
+            "error": _safe_error(last_delivery.error),
+            "sent_at": last_delivery.sent_at.isoformat() + "Z",
+        } if last_delivery else None,
         "free_tier": True,
     }
 
@@ -145,13 +167,89 @@ def _record(db: Session, event: dict[str, Any], channel: str, ok: bool, error: s
     existing = db.scalar(select(NotificationDelivery).where(NotificationDelivery.event_key == event["event_key"], NotificationDelivery.channel == channel))
     if existing:
         existing.status = "sent" if ok else "failed"
-        existing.error = error
+        existing.error = _safe_error(error)
         existing.sent_at = datetime.utcnow()
     else:
         db.add(NotificationDelivery(
             reminder_id=event.get("reminder_id"), event_key=event["event_key"], kind=event["kind"],
-            channel=channel, title=event["title"], status="sent" if ok else "failed", error=error,
+            channel=channel, title=event["title"], status="sent" if ok else "failed", error=_safe_error(error),
         ))
+
+
+def _safe_error(error: str) -> str:
+    cleaned = error or ""
+    for secret in (settings.resend_api_key, settings.notification_cron_token, settings.firebase_service_account_json):
+        if secret:
+            cleaned = cleaned.replace(secret, "[redacted]")
+    return cleaned[:500]
+
+
+def _record_dispatch_run(db: Session, source: str, status: str, events: int, error: str = "") -> None:
+    db.add(NotificationDispatchRun(source=source, status=status, events=events, error=_safe_error(error)))
+    db.commit()
+    old_ids = list(db.scalars(select(NotificationDispatchRun.id).order_by(
+        NotificationDispatchRun.checked_at.desc()
+    ).offset(200)).all())
+    if old_ids:
+        for item in db.scalars(select(NotificationDispatchRun).where(NotificationDispatchRun.id.in_(old_ids))).all():
+            db.delete(item)
+        db.commit()
+
+
+def send_test_notification(db: Session, channel: str, device_token: str = "") -> dict[str, Any]:
+    if channel not in {"push", "email"}:
+        raise ValueError("Choose push or email")
+    latest = db.scalar(select(NotificationDelivery).where(
+        NotificationDelivery.kind == "test", NotificationDelivery.channel == channel
+    ).order_by(NotificationDelivery.sent_at.desc()))
+    now = datetime.utcnow()
+    if latest and (now - latest.sent_at).total_seconds() < settings.notification_test_cooldown_seconds:
+        raise ValueError(f"Wait {settings.notification_test_cooldown_seconds} seconds before another {channel} test")
+
+    preference = get_preferences(db)
+    event = {
+        "event_key": f"test-{channel}-{uuid.uuid4().hex}",
+        "kind": "test",
+        "title": "NiveshDesk test successful",
+    }
+    body = "Your notification system is connected and ready for upcoming finance reminders."
+    if channel == "push":
+        registered = list(db.scalars(select(PushDevice).where(PushDevice.enabled.is_(True))).all())
+        if device_token:
+            registered = [item for item in registered if item.token == device_token]
+        if not settings.firebase_service_account_json or not settings.firebase_project_id:
+            ok, error = False, "Firebase server credentials are not configured"
+        elif not registered:
+            ok, error = False, "No matching push-enabled device is registered"
+        else:
+            ok, error = _send_push(event["title"], body, [item.token for item in registered], f"{settings.public_app_url}/notifications")
+    else:
+        if not settings.resend_api_key:
+            ok, error = False, "Resend API key is not configured"
+        elif not preference.email_address:
+            ok, error = False, "Notification email address is missing"
+        else:
+            ok, error = _send_email(preference.email_address, event["title"], body, _email_html(event["title"], body, "Open Notification Center"))
+    _record(db, event, channel, ok, error)
+    db.commit()
+    return {"status": "sent" if ok else "failed", "channel": channel, "message": body if ok else error, "sent_at": now.isoformat() + "Z"}
+
+
+def schedule_test_notification(db: Session, channel: str, delay_minutes: int) -> NotificationReminder:
+    if channel not in {"push", "email"}:
+        raise ValueError("Choose push or email")
+    if delay_minutes not in {1, 2, 5}:
+        raise ValueError("Scheduled tests must be 1, 2, or 5 minutes")
+    reminder = NotificationReminder(
+        kind="custom", title=f"NiveshDesk {delay_minutes}-minute test",
+        details=f"[notification-test] Scheduled {channel} delivery check.",
+        due_at=datetime.utcnow() + timedelta(minutes=delay_minutes), recurrence="once",
+        remind_before_minutes=0, channels=channel, enabled=True,
+    )
+    db.add(reminder)
+    db.commit()
+    db.refresh(reminder)
+    return reminder
 
 
 def _advance(reminder: NotificationReminder) -> None:
@@ -190,10 +288,12 @@ def _collect_events(db: Session, now_utc: datetime, preference: NotificationPref
         if notify_at <= now_utc and not _event_sent(db, f"reminder-{reminder.id}-{reminder.due_at.isoformat()}"):
             amount = f" • ₹{float(reminder.amount):,.0f}" if reminder.amount is not None else ""
             local_due = reminder.due_at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(preference.timezone))
+            clean_details = reminder.details.removeprefix("[notification-test]").strip()
             events.append({
                 "event_key": f"reminder-{reminder.id}-{reminder.due_at.isoformat()}", "reminder_id": reminder.id,
-                "kind": reminder.kind, "title": reminder.title, "body": f"Due {local_due.strftime('%d %b, %I:%M %p')} IST{amount}. {reminder.details}".strip(),
+                "kind": reminder.kind, "title": reminder.title, "body": f"Due {local_due.strftime('%d %b, %I:%M %p')} IST{amount}. {clean_details}".strip(),
                 "channels": [channel for channel in reminder.channels.split(",") if channel], "reminder": reminder,
+                "is_test": reminder.details.startswith("[notification-test]"),
             })
 
     if preference.expense_due_enabled:
@@ -227,23 +327,26 @@ def _collect_events(db: Session, now_utc: datetime, preference: NotificationPref
     return events
 
 
-def dispatch_due(db: Session, now: datetime | None = None) -> dict[str, Any]:
+def dispatch_due(db: Session, now: datetime | None = None, source: str = "manual") -> dict[str, Any]:
     now_utc = (now or datetime.utcnow()).replace(tzinfo=None)
     preference = get_preferences(db)
     local_now = now_utc.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(preference.timezone))
     in_quiet_hours = (preference.quiet_start > preference.quiet_end and (local_now.hour >= preference.quiet_start or local_now.hour < preference.quiet_end)) or (preference.quiet_start < preference.quiet_end and preference.quiet_start <= local_now.hour < preference.quiet_end)
-    if in_quiet_hours:
-        return {"status": "quiet_hours", "checked_at": now_utc.isoformat() + "Z", "events": 0, "results": []}
     events = _collect_events(db, now_utc, preference)
+    if in_quiet_hours:
+        events = [event for event in events if event.get("is_test")]
+        if not events:
+            _record_dispatch_run(db, source, "quiet_hours", 0)
+            return {"status": "quiet_hours", "checked_at": now_utc.isoformat() + "Z", "events": 0, "results": []}
     devices = [device.token for device in db.scalars(select(PushDevice).where(PushDevice.enabled.is_(True))).all()]
     results = []
     for event in events:
         delivered = False
         channel_results = {}
         for channel in event["channels"]:
-            if channel == "push" and preference.push_enabled and settings.firebase_service_account_json and settings.firebase_project_id:
+            if channel == "push" and (preference.push_enabled or event.get("is_test")) and settings.firebase_service_account_json and settings.firebase_project_id:
                 ok, error = _send_push(event["title"], event["body"], devices, f"{settings.public_app_url}/notifications")
-            elif channel == "email" and preference.email_enabled and settings.resend_api_key and preference.email_address:
+            elif channel == "email" and (preference.email_enabled or event.get("is_test")) and settings.resend_api_key and preference.email_address:
                 html = _email_html(event["title"], event["body"], "Open Notification Center", event.get("details", ""))
                 ok, error = _send_email(preference.email_address, event["title"], event["body"], html)
             else:
@@ -264,4 +367,5 @@ def dispatch_due(db: Session, now: datetime | None = None) -> dict[str, Any]:
             _advance(event["reminder"])
         results.append({"event_key": event["event_key"], "title": event["title"], "channels": channel_results})
         db.commit()
+    _record_dispatch_run(db, source, "completed", len(events))
     return {"status": "completed", "checked_at": now_utc.isoformat() + "Z", "events": len(events), "results": results}
