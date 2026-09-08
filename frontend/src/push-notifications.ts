@@ -4,6 +4,26 @@ import { getMessaging, getToken, isSupported, onMessage, type MessagePayload } f
 const API = window.location.hostname === "localhost" ? "http://localhost:8000" : window.location.origin;
 
 export type PushResult = { ok: boolean; reason?: "unsupported" | "install_required" | "not_configured" | "denied"; token?: string };
+export type PushDeviceStatus = {
+  supported: boolean;
+  permission: NotificationPermission | "unsupported";
+  installed: boolean;
+  ios: boolean;
+  tokenPresent: boolean;
+};
+
+export async function getPushDeviceStatus(): Promise<PushDeviceStatus> {
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const installed = window.matchMedia("(display-mode: standalone)").matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+  const supported = "Notification" in window && "serviceWorker" in navigator && await isSupported().catch(() => false);
+  return {
+    supported,
+    permission: supported ? Notification.permission : "unsupported",
+    installed,
+    ios,
+    tokenPresent: Boolean(localStorage.getItem("niveshdesk_push_token")),
+  };
+}
 
 export async function enablePushNotifications(onForeground?: (payload: MessagePayload) => void): Promise<PushResult> {
   if (!("serviceWorker" in navigator) || !(await isSupported())) return { ok: false, reason: "unsupported" };
