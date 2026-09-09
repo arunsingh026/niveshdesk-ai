@@ -79,7 +79,7 @@ Your Monthly Expenses Tracker is now **fully optimized for iPhone** and all mobi
 #### **Option 1: Safari Browser**
 1. Open Safari on your iPhone
 2. Visit: `http://your-server-ip:5173`
-3. Enter PIN: `1290`
+3. Sign in with your email or mobile number and password
 4. Navigate to Monthly Expenses
 
 #### **Option 2: Add to Home Screen** (Recommended!)
@@ -184,13 +184,13 @@ Your Monthly Expenses Tracker is now **fully optimized for iPhone** and all mobi
 
 ### **Don'ts**
 ❌ Don't use in browser's "Private Mode" (no session persistence)  
-❌ Don't share your PIN with others  
+❌ Don't share your password or one-time email code
 ❌ Don't clear browser data frequently (logs you out)  
 ❌ Don't rely solely on auto-save (check after edits)  
 
 ## 🔐 Security on Mobile
 
-- **PIN Protection**: Required on every session
+- **Account Protection**: Secure password or email-code sign-in
 - **Auto Logout**: After 15 minutes of inactivity
 - **Secure Connection**: Use HTTPS in production
 - **Local Data**: Nothing stored on device (all server-side)

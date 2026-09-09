@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..models import Stock, SIPDateHistory, SIPDatePreference
+from ..models import Stock, SIPDateHistory, SIPDatePreference, UserStockPreference
 import random
 
 def analyze_optimal_sip_dates(db: Session, start_date: int = 5, end_date: int = 10):
@@ -28,6 +28,7 @@ def analyze_optimal_sip_dates(db: Session, start_date: int = 5, end_date: int = 
 
     results = []
     now = datetime.now()
+    overrides={item.symbol:item.manual_sip_date for item in db.scalars(select(UserStockPreference)).all()}
     current_year = now.year
     current_month = now.month
 
@@ -142,13 +143,14 @@ def get_current_optimal_dates(db: Session):
 
     for mf in mutual_funds:
         # Check if user set manual override
-        if mf.manual_sip_date:
+        if overrides.get(mf.symbol):
+            manual_date=overrides[mf.symbol]
             results.append({
                 'symbol': mf.symbol,
-                'optimal_date': mf.manual_sip_date,
+                'optimal_date': manual_date,
                 'is_manual': True,
                 'avg_nav': None,
-                'justification': f'Manually set to {mf.manual_sip_date}th'
+                'justification': f'Manually set to {manual_date}th'
             })
             continue
 

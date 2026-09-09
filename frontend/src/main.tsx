@@ -3,7 +3,8 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Dashboard } from "./Dashboard";
 import { StockPlanner } from "./StockPlanner";
-import { PinAuth } from "./PinAuth";
+import { AuthScreen } from "./AuthScreen";
+import { AccountUser, API } from "./auth-client";
 import { NotificationSettings } from "./NotificationSettings";
 import { MonthlyExpenses } from "./MonthlyExpenses";
 import { LoadingScreen } from "./LoadingScreen";
@@ -11,7 +12,7 @@ import { BudgetPlanner } from "./BudgetPlanner";
 import { InvestmentPortfolio } from "./InvestmentPortfolio";
 import "./styles.css";
 import "./dashboard.css";
-import "./pin-auth.css";
+import "./auth.css";
 import "./notification-settings.css";
 import "./monthly-expenses.css";
 import "./loading-screen.css";
@@ -22,58 +23,35 @@ import "./mobile-responsive.css";
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [lastActivity, setLastActivity] = useState(Date.now());
-  const INACTIVITY_TIMEOUT = 15 * 60 * 1000; // 15 minutes
+  const [authChecked, setAuthChecked] = useState(false);
+  const [user, setUser] = useState<AccountUser | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    fetch(`${API}/api/auth/me`)
+      .then(async response => response.ok ? response.json() : null)
+      .then(result => setUser(result?.user || null))
+      .catch(() => setUser(null))
+      .finally(() => setAuthChecked(true));
+  }, []);
 
-    const checkInactivity = () => {
-      const elapsed = Date.now() - lastActivity;
-      if (elapsed >= INACTIVITY_TIMEOUT) {
-        handleLogout();
-      }
-    };
-
-    const interval = setInterval(checkInactivity, 60000); // Check every minute
-
-    const resetActivity = () => {
-      setLastActivity(Date.now());
-    };
-
-    // Track user activity
-    window.addEventListener("mousedown", resetActivity);
-    window.addEventListener("keydown", resetActivity);
-    window.addEventListener("scroll", resetActivity);
-    window.addEventListener("touchstart", resetActivity);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener("mousedown", resetActivity);
-      window.removeEventListener("keydown", resetActivity);
-      window.removeEventListener("scroll", resetActivity);
-      window.removeEventListener("touchstart", resetActivity);
-    };
-  }, [isAuthenticated, lastActivity]);
-
-  const handleLogout = () => {
-    localStorage.removeItem("authTime");
-    setIsAuthenticated(false);
+  const handleLogout = async () => {
+    await fetch(`${API}/api/auth/logout`, { method: "POST" }).catch(() => undefined);
+    localStorage.removeItem("niveshdesk_push_token");
+    setUser(null);
   };
 
-  if (isLoading) {
+  if (isLoading || !authChecked) {
     return <LoadingScreen onComplete={() => setIsLoading(false)} />;
   }
 
-  if (!isAuthenticated) {
-    return <PinAuth onAuthenticated={() => setIsAuthenticated(true)} />;
+  if (!user) {
+    return <AuthScreen onAuthenticated={setUser} />;
   }
 
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Dashboard onLogout={handleLogout} />} />
+        <Route path="/" element={<Dashboard onLogout={handleLogout} userName={user.full_name} />} />
         <Route path="/stock-planner" element={<StockPlanner onLogout={handleLogout} />} />
         <Route path="/notifications" element={<NotificationSettings onLogout={handleLogout} />} />
         <Route path="/expenses" element={<MonthlyExpenses onLogout={handleLogout} />} />

@@ -34,5 +34,10 @@ class Settings(BaseSettings):
     firebase_app_id: str = ""
     firebase_vapid_key: str = ""
     notification_test_cooldown_seconds: int = 10
+    auth_session_days: int = 30
+    auth_code_minutes: int = 10
+    auth_cookie_name: str = "niveshdesk_session"
+    auth_code_pepper: str = ""
+    allow_registration: bool = True
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 settings = Settings()
