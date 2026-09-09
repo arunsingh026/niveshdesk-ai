@@ -111,6 +111,8 @@ def public_user(user: User) -> dict:
         "phone": user.phone,
         "email_verified": user.email_verified,
         "phone_verified": user.phone_verified,
+        "role": user.role,
+        "must_change_password": user.must_change_password,
     }
 
 

@@ -58,6 +58,12 @@ def migrate_user_ownership(engine: Engine) -> None:
     existing = set(inspector.get_table_names())
     added_to_budget = False
     with engine.begin() as conn:
+        if "users" in existing:
+            user_columns = {item["name"] for item in inspect(conn).get_columns("users")}
+            if "role" not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'"))
+            if "must_change_password" not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT false"))
         for table in OWNED_TABLES:
             if table not in existing:
                 continue
@@ -81,8 +87,8 @@ def migrate_user_ownership(engine: Engine) -> None:
         legacy_id = conn.execute(text("SELECT id FROM users WHERE is_legacy_owner = true LIMIT 1")).scalar()
         if not legacy_id:
             result = conn.execute(text("""
-                INSERT INTO users (full_name,email,password_hash,email_verified,phone_verified,active,is_legacy_owner,created_at)
-                VALUES ('Legacy owner','legacy@niveshdesk.local',NULL,false,false,false,true,CURRENT_TIMESTAMP)
+                INSERT INTO users (full_name,email,password_hash,email_verified,phone_verified,active,role,must_change_password,is_legacy_owner,created_at)
+                VALUES ('Legacy owner','legacy@niveshdesk.local',NULL,false,false,false,'user',false,true,CURRENT_TIMESTAMP)
             """))
             legacy_id = result.lastrowid
             if not legacy_id:
@@ -112,3 +118,47 @@ def transfer_legacy_data(engine: Engine, destination_email: str) -> int:
             result = conn.execute(text(f"UPDATE {table} SET user_id = :destination WHERE user_id = :legacy"), {"destination": destination, "legacy": legacy})
             changed += result.rowcount or 0
         return changed
+
+
+def provision_owner_admin(engine: Engine, full_name: str, email: str, password: str, phone: str | None = None) -> dict:
+    """Create or update the owner admin from a trusted deployment console.
+
+    The temporary password is hashed immediately and the account is forced to
+    choose a new password before any finance API or admin API can be used.
+    """
+    from .auth import hash_password, normalize_email, normalize_phone
+    from .models import NotificationPreference
+
+    normalized_email = normalize_email(email)
+    normalized_phone = normalize_phone(phone)
+    if len(password) < 8 or not any(char.islower() for char in password) or not any(char.isupper() for char in password) or not any(char.isdigit() for char in password):
+        raise ValueError("Temporary password needs at least 8 characters with uppercase, lowercase, and a number")
+    with engine.begin() as conn:
+        row = conn.execute(text("SELECT id FROM users WHERE email = :email"), {"email": normalized_email}).first()
+        password_hash = hash_password(password)
+        if row:
+            user_id = row[0]
+            conn.execute(text("""
+                UPDATE users
+                SET full_name=:full_name, phone=:phone, password_hash=:password_hash,
+                    email_verified=true, active=true, role='admin', must_change_password=true
+                WHERE id=:user_id
+            """), {"full_name": full_name.strip(), "phone": normalized_phone, "password_hash": password_hash, "user_id": user_id})
+        else:
+            result = conn.execute(text("""
+                INSERT INTO users
+                    (full_name,email,phone,password_hash,email_verified,phone_verified,active,role,must_change_password,is_legacy_owner,created_at)
+                VALUES
+                    (:full_name,:email,:phone,:password_hash,true,false,true,'admin',true,false,CURRENT_TIMESTAMP)
+            """), {"full_name": full_name.strip(), "email": normalized_email, "phone": normalized_phone, "password_hash": password_hash})
+            user_id = result.lastrowid
+            if not user_id:
+                user_id = conn.execute(text("SELECT id FROM users WHERE email=:email"), {"email": normalized_email}).scalar_one()
+
+        preference = conn.execute(text("SELECT id FROM notification_preferences WHERE user_id=:user_id"), {"user_id": user_id}).first()
+        if not preference:
+            conn.execute(NotificationPreference.__table__.insert().values(user_id=user_id,email_address=normalized_email))
+        conn.execute(text("DELETE FROM user_sessions WHERE user_id=:user_id"), {"user_id": user_id})
+
+    transferred = transfer_legacy_data(engine, normalized_email)
+    return {"user_id": user_id, "email": normalized_email, "legacy_records_transferred": transferred}

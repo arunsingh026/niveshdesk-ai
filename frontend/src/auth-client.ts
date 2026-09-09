@@ -12,6 +12,8 @@ export type AccountUser = {
   phone?: string | null;
   email_verified: boolean;
   phone_verified: boolean;
+  role: "user" | "admin";
+  must_change_password: boolean;
 };
 
 export const API = window.location.hostname === "localhost" ? "http://localhost:8000" : window.location.origin;

@@ -2,10 +2,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI,Depends,Header,Request,Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import func,select,text
 from sqlalchemy.orm import Session
 from .db import init_db,SessionLocal,engine
-from .models import Stock,ReviewRun,MonthlyExpense,ExpensePayment,SIPDatePreference,SIPDateHistory,UserStockPreference,BudgetPlan,BudgetCategory,PortfolioHolding,NotificationPreference,NotificationReminder,NotificationDelivery,PushDevice,User
+from .models import Stock,ReviewRun,MonthlyExpense,ExpensePayment,SIPDatePreference,SIPDateHistory,UserStockPreference,BudgetPlan,BudgetCategory,PortfolioHolding,NotificationPreference,NotificationReminder,NotificationDelivery,PushDevice,User,UserSession
 from datetime import date,datetime,timezone
 import hmac
 from .services.planner import build_recommendations
@@ -24,7 +24,8 @@ from .services.notification_center import dispatch_all_users,dispatch_due,get_pr
 from fastapi import HTTPException
 from pydantic import BaseModel,Field
 from contextvars import ContextVar
-from .auth import authenticated_user,clear_login_failures,consume_email_code,create_session,enforce_login_limit,find_user,hash_password,issue_email_code,normalize_email,normalize_phone,public_user,record_login_failure,revoke_session,verify_password
+from .auth import authenticated_user,clear_login_failures,consume_email_code,create_session,enforce_login_limit,find_user,hash_password,issue_email_code,normalize_email,normalize_phone,public_user,record_login_failure,revoke_session,session_token_hash,verify_password
+from .migrations import OWNED_TABLES,transfer_legacy_data
 
 request_user_id:ContextVar[int|None]=ContextVar("request_user_id",default=None)
 
@@ -38,6 +39,18 @@ class RegisterInput(BaseModel):
 class PasswordLoginInput(BaseModel):
     identifier:str=Field(min_length=3,max_length=254)
     password:str=Field(min_length=1,max_length=128)
+
+class PasswordChangeInput(BaseModel):
+    current_password:str=Field(min_length=1,max_length=128)
+    new_password:str=Field(min_length=8,max_length=128)
+
+class ProfileUpdateInput(BaseModel):
+    full_name:str=Field(min_length=2,max_length=120)
+    phone:str=Field(default="",max_length=20)
+
+class AdminUserUpdateInput(BaseModel):
+    active:bool|None=None
+    role:str|None=Field(default=None,pattern="^(user|admin)$")
 
 class EmailCodeRequestInput(BaseModel):
     email:str=Field(min_length=5,max_length=254)
@@ -176,6 +189,8 @@ async def require_account_session(request:Request,call_next):
             user=authenticated_user(auth_db,request)
             if not user:
                 return JSONResponse(status_code=401,content={"detail":"Sign in to open your workspace"})
+            if user.must_change_password:
+                return JSONResponse(status_code=403,content={"detail":"Change your temporary password to continue","code":"password_change_required"})
             token=request_user_id.set(user.id)
     try:
         return await call_next(request)
@@ -253,6 +268,38 @@ def current_account(request:Request,db:Session=Depends(get_db)):
         raise HTTPException(status_code=401,detail="Sign in to open your workspace")
     return {"user":public_user(user)}
 
+@app.post("/api/auth/password")
+def change_account_password(payload:PasswordChangeInput,request:Request,db:Session=Depends(get_db)):
+    user=authenticated_user(db,request)
+    if not user or not verify_password(payload.current_password,user.password_hash):
+        raise HTTPException(status_code=401,detail="Current password is incorrect")
+    validate_password_strength(payload.new_password)
+    if verify_password(payload.new_password,user.password_hash):
+        raise HTTPException(status_code=400,detail="Choose a password you have not just used")
+    user.password_hash=hash_password(payload.new_password)
+    user.must_change_password=False
+    current_token=request.cookies.get(settings.auth_cookie_name)
+    current_hash=session_token_hash(current_token) if current_token else ""
+    for session in db.scalars(select(UserSession).where(UserSession.user_id==user.id,UserSession.token_hash!=current_hash)).all():
+        db.delete(session)
+    db.commit()
+    return {"message":"Password updated","user":public_user(user)}
+
+@app.patch("/api/auth/profile")
+def update_account_profile(payload:ProfileUpdateInput,request:Request,db:Session=Depends(get_db)):
+    user=authenticated_user(db,request)
+    if not user:
+        raise HTTPException(status_code=401,detail="Sign in to open your workspace")
+    if user.must_change_password:
+        raise HTTPException(status_code=403,detail="Change your temporary password first")
+    phone=normalize_phone(payload.phone)
+    if phone and db.scalar(select(User.id).where(User.phone==phone,User.id!=user.id)):
+        raise HTTPException(status_code=409,detail="Another account already uses this phone number")
+    user.full_name=payload.full_name.strip()
+    user.phone=phone
+    db.commit()
+    return {"message":"Profile updated","user":public_user(user)}
+
 @app.post("/api/auth/logout",status_code=204)
 def logout_account(request:Request,response:Response,db:Session=Depends(get_db)):
     user=authenticated_user(db,request)
@@ -264,6 +311,79 @@ def logout_account(request:Request,response:Response,db:Session=Depends(get_db))
     revoke_session(db,request,response)
     response.status_code=204
     return response
+
+def require_admin(db:Session) -> User:
+    user_id=request_user_id.get()
+    user=db.get(User,user_id) if user_id else None
+    if not user or user.role!="admin" or not user.active:
+        raise HTTPException(status_code=403,detail="Administrator access required")
+    return user
+
+def user_record_counts(db:Session,user_id:int) -> dict:
+    counts={}
+    for table in OWNED_TABLES:
+        counts[table]=db.execute(text(f"SELECT COUNT(*) FROM {table} WHERE user_id=:user_id"),{"user_id":user_id}).scalar() or 0
+    return counts
+
+@app.get("/api/admin/overview")
+def admin_overview(db:Session=Depends(get_db)):
+    admin=require_admin(db)
+    users=list(db.scalars(select(User).order_by(User.created_at.desc())).all())
+    payload=[]
+    for user in users:
+        if user.is_legacy_owner:
+            continue
+        details=public_user(user)
+        details.update({
+            "active":user.active,
+            "created_at":user.created_at.isoformat()+"Z",
+            "last_login_at":user.last_login_at.isoformat()+"Z" if user.last_login_at else None,
+            "active_sessions":db.scalar(select(func.count(UserSession.id)).where(UserSession.user_id==user.id)) or 0,
+            "record_counts":user_record_counts(db,user.id),
+        })
+        payload.append(details)
+    legacy=db.scalar(select(User).where(User.is_legacy_owner.is_(True)))
+    return {"current_admin":public_user(admin),"users":payload,"legacy_record_counts":user_record_counts(db,legacy.id) if legacy else {}}
+
+@app.patch("/api/admin/users/{user_id}")
+def update_admin_user(user_id:int,payload:AdminUserUpdateInput,db:Session=Depends(get_db)):
+    admin=require_admin(db)
+    target=db.get(User,user_id)
+    if not target or target.is_legacy_owner:
+        raise HTTPException(status_code=404,detail="User not found")
+    if target.id==admin.id and (payload.active is False or payload.role=="user"):
+        raise HTTPException(status_code=400,detail="You cannot remove your own administrator access")
+    if payload.active is not None:
+        target.active=payload.active
+    if payload.role is not None:
+        target.role=payload.role
+    if payload.active is False:
+        for session in db.scalars(select(UserSession).where(UserSession.user_id==target.id)).all():
+            db.delete(session)
+    db.commit()
+    return {"user":public_user(target),"active":target.active}
+
+@app.post("/api/admin/users/{user_id}/revoke-sessions")
+def revoke_user_sessions(user_id:int,db:Session=Depends(get_db)):
+    admin=require_admin(db)
+    target=db.get(User,user_id)
+    if not target or target.is_legacy_owner:
+        raise HTTPException(status_code=404,detail="User not found")
+    if target.id==admin.id:
+        raise HTTPException(status_code=400,detail="Use password change to secure your own sessions")
+    count=0
+    for session in db.scalars(select(UserSession).where(UserSession.user_id==target.id)).all():
+        db.delete(session); count+=1
+    db.commit()
+    return {"revoked_sessions":count}
+
+@app.post("/api/admin/claim-legacy-data")
+def claim_legacy_data(db:Session=Depends(get_db)):
+    admin=require_admin(db)
+    email=admin.email or ""
+    db.commit()
+    changed=transfer_legacy_data(engine,email)
+    return {"records_transferred":changed}
 @app.get("/api/stocks")
 def stocks(db:Session=Depends(get_db)): return list(db.scalars(select(Stock).order_by(Stock.market_cap,Stock.name)).all())
 @app.get("/api/recommendations")
