@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom";
 import { Dashboard } from "./Dashboard";
 import { StockPlanner } from "./StockPlanner";
 import { AuthScreen } from "./AuthScreen";
@@ -10,6 +10,8 @@ import { MonthlyExpenses } from "./MonthlyExpenses";
 import { LoadingScreen } from "./LoadingScreen";
 import { BudgetPlanner } from "./BudgetPlanner";
 import { InvestmentPortfolio } from "./InvestmentPortfolio";
+import { AdminPage } from "./AdminPage";
+import { ChangePasswordScreen } from "./ChangePasswordScreen";
 import "./styles.css";
 import "./dashboard.css";
 import "./auth.css";
@@ -20,6 +22,7 @@ import "./expenses-workspace.css";
 import "./suite-theme.css";
 import "./money-workspaces.css";
 import "./mobile-responsive.css";
+import "./admin.css";
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
@@ -48,15 +51,20 @@ function App() {
     return <AuthScreen onAuthenticated={setUser} />;
   }
 
+  if (user.must_change_password) {
+    return <ChangePasswordScreen user={user} onChanged={setUser} onLogout={handleLogout} />;
+  }
+
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Dashboard onLogout={handleLogout} userName={user.full_name} />} />
+        <Route path="/" element={<Dashboard onLogout={handleLogout} userName={user.full_name} isAdmin={user.role === "admin"} />} />
         <Route path="/stock-planner" element={<StockPlanner onLogout={handleLogout} />} />
         <Route path="/notifications" element={<NotificationSettings onLogout={handleLogout} />} />
         <Route path="/expenses" element={<MonthlyExpenses onLogout={handleLogout} />} />
         <Route path="/budget" element={<BudgetPlanner onLogout={handleLogout} />} />
         <Route path="/portfolio" element={<InvestmentPortfolio onLogout={handleLogout} />} />
+        <Route path="/admin" element={user.role === "admin" ? <AdminPage onLogout={handleLogout} currentUserId={user.id} /> : <Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

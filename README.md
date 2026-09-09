@@ -34,6 +34,8 @@ This application is a planning/reminder tool, not an autonomous trading system o
 
 See `NOTIFICATIONS_SETUP.md` to connect the no-cost Firebase, Resend, and GitHub Actions notification stack.
 
+See `ADMIN_SETUP.md` for the console-only owner provisioning flow and the protected administrator workspace.
+
 ## Account security
 
 Set `AUTH_CODE_PEPPER` to a long random value in the private production environment before enabling email-code sign-in. Password and session values are never stored in frontend storage. Existing single-user finance records are migrated to a disabled legacy owner and must be transferred administratively after the real owner registers.

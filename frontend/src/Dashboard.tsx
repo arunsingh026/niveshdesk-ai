@@ -15,9 +15,10 @@ interface AppStatus {
 interface DashboardProps {
   onLogout?: () => void;
   userName?: string;
+  isAdmin?: boolean;
 }
 
-export function Dashboard({ onLogout, userName }: DashboardProps) {
+export function Dashboard({ onLogout, userName, isAdmin = false }: DashboardProps) {
   const navigate = useNavigate();
   const [serverRunning, setServerRunning] = useState<"checking" | "running" | "stopped">("checking");
   const [isStarting, setIsStarting] = useState(false);
@@ -74,7 +75,16 @@ export function Dashboard({ onLogout, userName }: DashboardProps) {
       apiUrl: `${API_BASE}/api/notifications/status`,
       color: "#8b5cf6",
       status: "checking"
-    }
+    },
+    ...(isAdmin ? [{
+      name: "Admin Console",
+      description: "Manage users, security and protected data access",
+      icon: "fa-user-shield",
+      route: "/admin",
+      apiUrl: `${API_BASE}/api/admin/overview`,
+      color: "#155f4b",
+      status: "checking" as const
+    }] : [])
   ]);
 
   useEffect(() => {
