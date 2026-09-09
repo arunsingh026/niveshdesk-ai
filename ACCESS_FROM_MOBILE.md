@@ -35,7 +35,7 @@ hostname -I | awk '{print $1}'
 1. **Open Safari** on your iPhone
 2. **Visit:** `http://YOUR_IP:5173`  
    Example: `http://192.168.1.214:5173`
-3. **Enter PIN:** `1290`
+3. **Sign in** with your email or mobile number and password
 4. **Tap "Monthly Expenses"**
 
 ### **Step 3: Add to Home Screen (Optional but Recommended!)**
@@ -72,7 +72,7 @@ hostname -I | awk '{print $1}'
 - [ ] Find your computer's IP address
 - [ ] Open Safari on iPhone (not Chrome!)
 - [ ] Visit `http://YOUR_IP:5173`
-- [ ] Enter PIN: `1290`
+- [ ] Register or sign in to your private account
 - [ ] Test that "Server Running" shows green checkmark
 - [ ] Test Monthly Expenses page loads
 - [ ] Add to home screen for easy access
@@ -165,9 +165,8 @@ On iPhone Safari, visit: `http://YOUR_IP:8000/health`
 
 Create a note:
 ```
-Expense Tracker
+NiveshDesk
 http://192.168.1.214:5173
-PIN: 1290
 
 Updated: Aug 26, 2026
 ```
@@ -243,7 +242,7 @@ All features are fully functional:
 
 ✅ Only accessible on your **home WiFi network**  
 ✅ **Not exposed** to the internet  
-✅ **PIN protected** (1290)  
+✅ **Individual password-protected accounts**
 ✅ **Auto-logout** after 15 minutes of inactivity  
 
 ### **Cannot Access From:**
@@ -290,8 +289,7 @@ Would require:
 │  2. iPhone Safari:                          │
 │     http://YOUR_IP:5173                     │
 │                                             │
-│  3. PIN:                                    │
-│     1290                                    │
+│  3. Sign in to your private account         │
 │                                             │
 │  4. Add to Home Screen!                     │
 │     Share → Add to Home Screen              │

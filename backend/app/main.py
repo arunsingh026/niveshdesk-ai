@@ -1,14 +1,15 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI,Depends,Header
+from fastapi import FastAPI,Depends,Header,Request,Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .db import init_db,SessionLocal,engine
-from .models import Stock,ReviewRun,MonthlyExpense,ExpensePayment,SIPDatePreference,SIPDateHistory,BudgetPlan,BudgetCategory,PortfolioHolding,NotificationPreference,NotificationReminder,NotificationDelivery,PushDevice
+from .models import Stock,ReviewRun,MonthlyExpense,ExpensePayment,SIPDatePreference,SIPDateHistory,UserStockPreference,BudgetPlan,BudgetCategory,PortfolioHolding,NotificationPreference,NotificationReminder,NotificationDelivery,PushDevice,User
 from datetime import date,datetime,timezone
 import hmac
 from .services.planner import build_recommendations
-from .services.scheduler import start_scheduler,monthly_review,daily_expense_reminder
+from .services.scheduler import start_scheduler,monthly_review
 from .services.notifications import notification_service
 from .services.market_data import get_chart_data, MarketDataError
 from .services.sip_optimizer import (
@@ -19,9 +20,31 @@ from .services.sip_optimizer import (
     confirm_sip_date_change
 )
 from .config import settings
-from .services.notification_center import dispatch_due,get_preferences,provider_status,public_firebase_config,send_test_notification,schedule_test_notification
+from .services.notification_center import dispatch_all_users,dispatch_due,get_preferences,provider_status,public_firebase_config,send_test_notification,schedule_test_notification
 from fastapi import HTTPException
 from pydantic import BaseModel,Field
+from contextvars import ContextVar
+from .auth import authenticated_user,clear_login_failures,consume_email_code,create_session,enforce_login_limit,find_user,hash_password,issue_email_code,normalize_email,normalize_phone,public_user,record_login_failure,revoke_session,verify_password
+
+request_user_id:ContextVar[int|None]=ContextVar("request_user_id",default=None)
+
+class RegisterInput(BaseModel):
+    full_name:str=Field(min_length=2,max_length=120)
+    email:str=Field(min_length=5,max_length=254)
+    phone:str=Field(default="",max_length=20)
+    password:str=Field(min_length=8,max_length=128)
+    verification_code:str=Field(pattern="^\\d{6}$")
+
+class PasswordLoginInput(BaseModel):
+    identifier:str=Field(min_length=3,max_length=254)
+    password:str=Field(min_length=1,max_length=128)
+
+class EmailCodeRequestInput(BaseModel):
+    email:str=Field(min_length=5,max_length=254)
+
+class EmailCodeLoginInput(EmailCodeRequestInput):
+    code:str=Field(pattern="^\\d{6}$")
+
 
 class BudgetCategoryInput(BaseModel):
     name:str=Field(min_length=1,max_length=100)
@@ -134,22 +157,121 @@ async def lifespan(app):
     start_scheduler()
     yield
 app=FastAPI(title="My Stock Planner API",version="0.1.0",lifespan=lifespan)
-# Allow requests from any origin (for local network access)
-app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_credentials=False,allow_methods=["*"],allow_headers=["*"])
+allowed_origins=list(dict.fromkeys([
+    settings.public_app_url.rstrip("/"),"http://localhost:5173","http://127.0.0.1:5173"
+]))
+app.add_middleware(CORSMiddleware,allow_origins=allowed_origins,
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(?::\d+)?$",
+    allow_credentials=True,allow_methods=["*"],allow_headers=["*"])
+
+@app.middleware("http")
+async def require_account_session(request:Request,call_next):
+    path=request.url.path
+    public=(request.method=="OPTIONS" or path=="/health" or path.startswith("/api/auth/") or
+        path=="/api/notifications/firebase-config" or path=="/api/notifications/dispatch" or
+        not path.startswith("/api/"))
+    token=None
+    if not public:
+        with SessionLocal() as auth_db:
+            user=authenticated_user(auth_db,request)
+            if not user:
+                return JSONResponse(status_code=401,content={"detail":"Sign in to open your workspace"})
+            token=request_user_id.set(user.id)
+    try:
+        return await call_next(request)
+    finally:
+        if token is not None:
+            request_user_id.reset(token)
+
 def get_db():
     db=SessionLocal()
+    user_id=request_user_id.get()
+    if user_id:
+        db.info["user_id"]=user_id
     try: yield db
     finally: db.close()
 @app.get("/health")
 def health(): return {"status":"ok","timezone":settings.app_timezone}
+
+def validate_password_strength(password:str):
+    if not any(char.islower() for char in password) or not any(char.isupper() for char in password) or not any(char.isdigit() for char in password):
+        raise HTTPException(status_code=400,detail="Password needs uppercase, lowercase, and a number")
+
+@app.post("/api/auth/register",status_code=201)
+def register_account(payload:RegisterInput,request:Request,response:Response,db:Session=Depends(get_db)):
+    if not settings.allow_registration:
+        raise HTTPException(status_code=403,detail="New registrations are temporarily closed")
+    email=normalize_email(payload.email)
+    phone=normalize_phone(payload.phone)
+    if not email and not phone:
+        raise HTTPException(status_code=400,detail="Enter an email address or phone number")
+    validate_password_strength(payload.password)
+    if email and db.scalar(select(User.id).where(User.email==email)):
+        raise HTTPException(status_code=409,detail="An account already uses this email")
+    if phone and db.scalar(select(User.id).where(User.phone==phone)):
+        raise HTTPException(status_code=409,detail="An account already uses this phone number")
+    consume_email_code(db,email,payload.verification_code,purpose="register")
+    user=User(full_name=payload.full_name.strip(),email=email,phone=phone,password_hash=hash_password(payload.password),email_verified=True)
+    db.add(user); db.flush()
+    db.add(NotificationPreference(user_id=user.id,email_address=email or ""))
+    result=create_session(db,user,request,response)
+    result["message"]="Your private workspace is ready"
+    return result
+
+@app.post("/api/auth/login/password")
+def login_with_password(payload:PasswordLoginInput,request:Request,response:Response,db:Session=Depends(get_db)):
+    enforce_login_limit(db,payload.identifier)
+    user=find_user(db,payload.identifier)
+    if not user or not user.active or not verify_password(payload.password,user.password_hash):
+        record_login_failure(db,payload.identifier)
+        raise HTTPException(status_code=401,detail="Email, phone number, or password is incorrect")
+    clear_login_failures(db,payload.identifier)
+    return create_session(db,user,request,response)
+
+@app.post("/api/auth/code/request",status_code=202)
+def request_email_code(payload:EmailCodeRequestInput,db:Session=Depends(get_db)):
+    email=normalize_email(payload.email)
+    issue_email_code(db,email)
+    return {"message":"If an account exists, a six-digit code has been sent"}
+
+@app.post("/api/auth/register/code",status_code=202)
+def request_registration_code(payload:EmailCodeRequestInput,db:Session=Depends(get_db)):
+    email=normalize_email(payload.email)
+    issue_email_code(db,email,purpose="register")
+    return {"message":"A six-digit verification code has been sent"}
+
+@app.post("/api/auth/login/code")
+def login_with_email_code(payload:EmailCodeLoginInput,request:Request,response:Response,db:Session=Depends(get_db)):
+    email=normalize_email(payload.email)
+    user=consume_email_code(db,email,payload.code)
+    return create_session(db,user,request,response)
+
+@app.get("/api/auth/me")
+def current_account(request:Request,db:Session=Depends(get_db)):
+    user=authenticated_user(db,request)
+    if not user:
+        raise HTTPException(status_code=401,detail="Sign in to open your workspace")
+    return {"user":public_user(user)}
+
+@app.post("/api/auth/logout",status_code=204)
+def logout_account(request:Request,response:Response,db:Session=Depends(get_db)):
+    user=authenticated_user(db,request)
+    if user:
+        db.info["user_id"]=user.id
+        for device in db.scalars(select(PushDevice).where(PushDevice.enabled.is_(True))).all():
+            device.enabled=False
+        db.commit()
+    revoke_session(db,request,response)
+    response.status_code=204
+    return response
 @app.get("/api/stocks")
 def stocks(db:Session=Depends(get_db)): return list(db.scalars(select(Stock).order_by(Stock.market_cap,Stock.name)).all())
 @app.get("/api/recommendations")
 def recommendations(stock_budget:int=35000,mf_budget:int=30000,db:Session=Depends(get_db)): return build_recommendations(list(db.scalars(select(Stock).where(Stock.enabled.is_(True))).all()),stock_budget,mf_budget)
 @app.post("/api/review/run")
-def run_review(): monthly_review(); return {"status":"completed"}
+def run_review(db:Session=Depends(get_db)): monthly_review(db.info.get("user_id")); return {"status":"completed"}
 @app.get("/api/reviews")
-def reviews(db:Session=Depends(get_db)): return [{"id":r.id,"run_key":r.run_key,"created_at":r.created_at,"budget":r.budget,"deployed":float(r.deployed),"reserve":float(r.reserve),"status":r.status} for r in db.scalars(select(ReviewRun).order_by(ReviewRun.created_at.desc())).all()]
+def reviews(db:Session=Depends(get_db)): return [{"id":r.id,"run_key":r.run_key.split("-",1)[-1] if r.run_key.startswith("u") else r.run_key,"created_at":r.created_at,"budget":r.budget,"deployed":float(r.deployed),"reserve":float(r.reserve),"status":r.status} for r in db.scalars(select(ReviewRun).order_by(ReviewRun.created_at.desc())).all()]
 @app.get("/api/stock/{symbol}/chart")
 def stock_chart(symbol: str, period: str = "1m"):
     try:
@@ -162,9 +284,12 @@ def stock_chart(symbol: str, period: str = "1m"):
 @app.post("/api/notifications/send")
 def send_notifications(stock_budget:int=35000,mf_budget:int=30000,db:Session=Depends(get_db)):
     recommendations=build_recommendations(list(db.scalars(select(Stock).where(Stock.enabled.is_(True))).all()),stock_budget,mf_budget)
-    total_budget = stock_budget + mf_budget
-    result=notification_service.send_stock_recommendations(recommendations,total_budget)
-    return {"status":"completed","result":result}
+    buys=[item for item in recommendations if item.get("status")=="BUY"]
+    details=", ".join(f"{item['symbol']} ₹{item['deploy_amount']:,.0f}" for item in buys[:8]) or "No buys are inside the configured price ranges today."
+    db.add(NotificationReminder(kind="stock_buy",title="Your stock plan is ready",details=details,
+        due_at=datetime.utcnow(),recurrence="once",remind_before_minutes=0,channels="push,email"))
+    db.commit()
+    return {"status":"completed","result":dispatch_due(db,source="stock_review"),"recommendations":len(recommendations)}
 @app.get("/api/notifications/status")
 def notification_status(db:Session=Depends(get_db)):
     return provider_status(db)
@@ -245,13 +370,23 @@ def firebase_config():
 
 @app.post("/api/notifications/devices")
 def register_push_device(payload:PushDeviceInput,db:Session=Depends(get_db)):
-    item=db.scalar(select(PushDevice).where(PushDevice.token==payload.token))
-    if item:
-        item.enabled=True; item.device_label=payload.device_label; item.last_seen_at=datetime.utcnow()
-    else:
-        item=PushDevice(token=payload.token,device_label=payload.device_label); db.add(item)
-    db.commit(); db.refresh(item)
-    return {"id":item.id,"device_label":item.device_label,"enabled":item.enabled}
+    user_id=db.info.get("user_id")
+    if not user_id:
+        item=db.scalar(select(PushDevice).where(PushDevice.token==payload.token))
+        if item:
+            item.enabled=True; item.device_label=payload.device_label; item.last_seen_at=datetime.utcnow()
+        else:
+            item=PushDevice(token=payload.token,device_label=payload.device_label); db.add(item)
+        db.commit(); db.refresh(item)
+        return {"id":item.id,"device_label":item.device_label,"enabled":item.enabled}
+    with SessionLocal() as device_db:
+        item=device_db.scalar(select(PushDevice).where(PushDevice.token==payload.token))
+        if item:
+            item.user_id=user_id; item.enabled=True; item.device_label=payload.device_label; item.last_seen_at=datetime.utcnow()
+        else:
+            item=PushDevice(user_id=user_id,token=payload.token,device_label=payload.device_label); device_db.add(item)
+        device_db.commit(); device_db.refresh(item)
+        return {"id":item.id,"device_label":item.device_label,"enabled":item.enabled}
 
 @app.delete("/api/notifications/devices")
 def unregister_push_device(payload:PushDeviceInput,db:Session=Depends(get_db)):
@@ -282,7 +417,7 @@ def run_notification_dispatch(x_notification_token:str|None=Header(default=None)
     expected=settings.notification_cron_token
     if not expected or not x_notification_token or not hmac.compare_digest(expected,x_notification_token):
         raise HTTPException(status_code=401,detail="Invalid notification scheduler token")
-    return dispatch_due(db,source="github_actions")
+    return dispatch_all_users(source="github_actions")
 
 @app.get("/api/expenses")
 def get_expenses(db:Session=Depends(get_db)):
@@ -384,10 +519,10 @@ def unmark_expense_paid(expense_id:int,year:int,month:int,db:Session=Depends(get
     return {"status":"ok"}
 
 @app.post("/api/expenses/notify/test")
-def test_expense_notifications():
+def test_expense_notifications(db:Session=Depends(get_db)):
     """Manually trigger expense reminder notifications for testing"""
-    daily_expense_reminder()
-    return {"status":"completed","message":"Expense notifications sent (if any expenses due today)"}
+    result=dispatch_due(db,source="expense_test")
+    return {"status":"completed","message":"Expense notification check completed","result":result}
 
 @app.post("/api/expenses/notify/send")
 def send_expense_notifications(expense_ids:list[int],db:Session=Depends(get_db)):
@@ -396,16 +531,12 @@ def send_expense_notifications(expense_ids:list[int],db:Session=Depends(get_db))
     if not expenses:
         return {"status":"error","message":"No expenses found"}
 
-    expense_list=[{
-        "id":exp.id,
-        "name":exp.name,
-        "amount":float(exp.amount) if exp.amount else None,
-        "category":exp.category,
-        "description":exp.description
-    } for exp in expenses]
-
-    result=notification_service.send_expense_reminders(expense_list,"due_today")
-    return {"status":"completed","result":result}
+    now=datetime.utcnow()
+    for expense in expenses:
+        db.add(NotificationReminder(kind="credit_card",title=f"{expense.name} is due",details=expense.description,
+            amount=expense.amount,due_at=now,recurrence="once",remind_before_minutes=0,channels="push,email"))
+    db.commit()
+    return {"status":"completed","result":dispatch_due(db,source="expense_manual")}
 
 @app.get("/api/sip/preferences")
 def get_sip_preferences(db:Session=Depends(get_db)):
@@ -457,16 +588,16 @@ def set_manual_sip_date(data:dict,db:Session=Depends(get_db)):
     if not stock:
         raise HTTPException(status_code=404,detail="Stock not found")
 
-    if manual_date is None:
-        # Clear manual override
-        stock.manual_sip_date=None
+    preference=db.scalar(select(UserStockPreference).where(UserStockPreference.symbol==symbol))
+    if manual_date is not None and (manual_date<1 or manual_date>31):
+        raise HTTPException(status_code=400,detail="Date must be between 1 and 31")
+    if not preference:
+        preference=UserStockPreference(symbol=symbol,manual_sip_date=manual_date); db.add(preference)
     else:
-        if manual_date<1 or manual_date>31:
-            raise HTTPException(status_code=400,detail="Date must be between 1 and 31")
-        stock.manual_sip_date=manual_date
+        preference.manual_sip_date=manual_date
 
     db.commit()
-    return {"symbol":symbol,"manual_date":stock.manual_sip_date}
+    return {"symbol":symbol,"manual_date":preference.manual_sip_date}
 
 @app.get("/api/expenses/monthly-summary")
 def get_monthly_summary(db:Session=Depends(get_db)):
@@ -538,25 +669,8 @@ def get_monthly_summary(db:Session=Depends(get_db)):
 # Migration endpoint to add new columns
 @app.post("/api/expenses/migrate")
 def migrate_expenses(db:Session=Depends(get_db)):
-    """Add is_recurring, specific_year, specific_month columns"""
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        try:
-            # Check if columns exist
-            result = conn.execute(text("""
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name='monthly_expenses' AND column_name='is_recurring'
-            """))
-            if not result.fetchone():
-                conn.execute(text("ALTER TABLE monthly_expenses ADD COLUMN is_recurring BOOLEAN DEFAULT true"))
-                conn.execute(text("ALTER TABLE monthly_expenses ADD COLUMN specific_year INTEGER"))
-                conn.execute(text("ALTER TABLE monthly_expenses ADD COLUMN specific_month INTEGER"))
-                conn.commit()
-                return {"status":"migrated","message":"Columns added successfully"}
-            return {"status":"already_migrated","message":"Columns already exist"}
-        except Exception as e:
-            return {"status":"error","message":str(e)}
+    """Legacy compatibility endpoint; startup migrations now manage the schema."""
+    return {"status":"ready","message":"Expense schema is current"}
 
 @app.post("/api/expenses/{expense_id}/hide-month")
 def hide_expense_for_month(expense_id:int,payload:dict,db:Session=Depends(get_db)):
@@ -588,17 +702,11 @@ def hide_expense_for_month(expense_id:int,payload:dict,db:Session=Depends(get_db
 
 @app.post("/api/expenses/fix-recurring")
 def fix_recurring_expenses(db:Session=Depends(get_db)):
-    """Update all existing expenses to have is_recurring=true"""
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        # Update all NULL is_recurring to true
-        result = conn.execute(text("""
-            UPDATE monthly_expenses 
-            SET is_recurring = true 
-            WHERE is_recurring IS NULL OR is_recurring = false
-        """))
-        conn.commit()
-        return {"status":"ok","updated":result.rowcount}
+    """Update only the signed-in user's legacy recurring records."""
+    items=list(db.scalars(select(MonthlyExpense).where(MonthlyExpense.is_recurring.is_(None))).all())
+    for item in items: item.is_recurring=True
+    db.commit()
+    return {"status":"ok","updated":len(items)}
 
 DEFAULT_BUDGET_CATEGORIES=[
     {"name":"Home & rent","bucket":"needs","icon":"fa-house"},

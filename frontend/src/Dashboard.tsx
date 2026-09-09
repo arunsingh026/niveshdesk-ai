@@ -14,9 +14,10 @@ interface AppStatus {
 
 interface DashboardProps {
   onLogout?: () => void;
+  userName?: string;
 }
 
-export function Dashboard({ onLogout }: DashboardProps) {
+export function Dashboard({ onLogout, userName }: DashboardProps) {
   const navigate = useNavigate();
   const [serverRunning, setServerRunning] = useState<"checking" | "running" | "stopped">("checking");
   const [isStarting, setIsStarting] = useState(false);
@@ -203,7 +204,7 @@ export function Dashboard({ onLogout }: DashboardProps) {
 
       <div className={`dashboard-container ${isBlurred ? "blurred" : ""}`}>
         <div className="welcome-section">
-          <div><span className="suite-eyebrow">YOUR FINANCIAL WORKSPACE</span><h2>Welcome back, Arun.</h2><p>Less guesswork. More clarity. Your money, all in one place.</p></div>
+          <div><span className="suite-eyebrow">YOUR FINANCIAL WORKSPACE</span><h2>Welcome back, {userName?.split(" ")[0] || "there"}.</h2><p>Less guesswork. More clarity. Your money, all in one place.</p></div>
           <span className="overview-date"><i className="far fa-calendar" /> {new Date().toLocaleDateString("en-IN", {day:"numeric",month:"long",year:"numeric"})}</span>
         </div>
         <section className="dashboard-focus">

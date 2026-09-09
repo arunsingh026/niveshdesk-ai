@@ -24,13 +24,15 @@ from ..models import (
     NotificationReminder,
     PortfolioHolding,
     PushDevice,
+    User,
 )
+from ..db import SessionLocal
 
 
 def get_preferences(db: Session) -> NotificationPreference:
-    preference = db.get(NotificationPreference, 1)
+    preference = db.scalar(select(NotificationPreference).order_by(NotificationPreference.id).limit(1))
     if not preference:
-        preference = NotificationPreference(id=1)
+        preference = NotificationPreference()
         db.add(preference)
         db.commit()
         db.refresh(preference)
@@ -272,7 +274,7 @@ def _monthly_report(db: Session, today: date) -> dict[str, Any]:
     gain = current - invested
     details = f"<div style='padding:18px;background:#f2f6f2;border-radius:12px'><b>Current value:</b> ₹{current:,.0f}<br><b>Invested:</b> ₹{invested:,.0f}<br><b>Gain / loss:</b> ₹{gain:,.0f}<br><b>Holdings:</b> {len(holdings)}</div>"
     return {
-        "event_key": f"portfolio-report-{today:%Y-%m}", "kind": "portfolio_report",
+        "event_key": f"u{db.info.get('user_id','legacy')}-portfolio-report-{today:%Y-%m}", "kind": "portfolio_report",
         "title": f"Your {today.strftime('%B')} portfolio snapshot",
         "body": f"Your portfolio is ₹{current:,.0f} across {len(holdings)} holdings, with an overall change of ₹{gain:,.0f}.",
         "details": details, "channels": ["email"],
@@ -316,7 +318,7 @@ def _collect_events(db: Session, now_utc: datetime, preference: NotificationPref
         if plan and float(plan.income) > 0:
             spent = sum(float(row.actual_amount) for row in db.scalars(select(BudgetCategory).where(BudgetCategory.plan_id == plan.id)).all())
             percent = spent / float(plan.income) * 100
-            key = f"budget-{today:%Y-%m}-{preference.budget_threshold}"
+            key = f"u{db.info.get('user_id','legacy')}-budget-{today:%Y-%m}-{preference.budget_threshold}"
             if percent >= preference.budget_threshold and not _event_sent(db, key):
                 events.append({"event_key": key, "kind": "budget", "title": "Budget needs attention", "body": f"You have used {percent:.0f}% of this month's income budget (₹{spent:,.0f}).", "channels": ["push", "email"]})
 
@@ -369,3 +371,25 @@ def dispatch_due(db: Session, now: datetime | None = None, source: str = "manual
         db.commit()
     _record_dispatch_run(db, source, "completed", len(events))
     return {"status": "completed", "checked_at": now_utc.isoformat() + "Z", "events": len(events), "results": results}
+
+
+def dispatch_all_users(source: str = "manual") -> dict[str, Any]:
+    """Run one isolated notification pass for every active account."""
+    with SessionLocal() as lookup:
+        user_ids = list(lookup.scalars(select(User.id).where(User.active.is_(True), User.is_legacy_owner.is_(False))).all())
+    results = []
+    total_events = 0
+    failed = 0
+    for user_id in user_ids:
+        with SessionLocal() as user_db:
+            user_db.info["user_id"] = user_id
+            try:
+                result = dispatch_due(user_db, source=source)
+                total_events += result["events"]
+                results.append({"user_id": user_id, "status": result["status"], "events": result["events"]})
+            except Exception as exc:
+                user_db.rollback()
+                _record_dispatch_run(user_db, source, "failed", 0, str(exc))
+                failed += 1
+                results.append({"user_id": user_id, "status": "failed", "events": 0})
+    return {"status": "completed" if not failed else "partial_failure", "users": len(user_ids), "events": total_events, "failed": failed, "results": results}
