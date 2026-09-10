@@ -132,6 +132,43 @@ def test_registered_accounts_receive_separate_api_workspaces(monkeypatch):
     assert TestClient(main.app).get("/api/portfolio").status_code == 401
 
 
+def test_registration_creates_real_account_without_email_provider(monkeypatch):
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    monkeypatch.setattr(main, "SessionLocal", factory)
+    monkeypatch.setattr(main.settings, "resend_api_key", "")
+    monkeypatch.setattr(main.settings, "auth_code_pepper", "")
+
+    client = TestClient(main.app)
+    response = client.post("/api/auth/register", json={
+        "full_name": "Real User", "email": "real@example.com", "phone": "+919876543212", "password": "StrongPass9",
+    })
+
+    assert response.status_code == 201
+    assert response.json()["user"]["email_verified"] is False
+    assert client.get("/api/auth/me").json()["user"]["email"] == "real@example.com"
+    with factory() as db:
+        saved = db.scalar(select(User).where(User.email == "real@example.com"))
+        assert saved is not None and verify_password("StrongPass9", saved.password_hash)
+
+
+def test_registration_requires_code_when_email_verification_is_configured(monkeypatch):
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    monkeypatch.setattr(main, "SessionLocal", factory)
+    monkeypatch.setattr(main.settings, "resend_api_key", "configured")
+    monkeypatch.setattr(main.settings, "auth_code_pepper", "configured")
+
+    response = TestClient(main.app).post("/api/auth/register", json={
+        "full_name": "Verified User", "email": "verified@example.com", "password": "StrongPass9",
+    })
+
+    assert response.status_code == 400
+    assert "six-digit code" in response.json()["detail"]
+
+
 def test_temporary_admin_must_change_password_before_opening_workspace(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)

@@ -16,6 +16,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend"))
 from a2wsgi import ASGIMiddleware
 from app.db import init_db
 from app.main import app
+from app.services.scheduler import start_scheduler
 
 init_db()
+start_scheduler()
 application = ASGIMiddleware(app)
