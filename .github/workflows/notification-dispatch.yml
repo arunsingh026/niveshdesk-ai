@@ -24,7 +24,7 @@ jobs:
         run: |
           curl --fail --show-error --silent \
             --retry 3 --retry-all-errors --retry-delay 5 --max-time 30 \
-            "${APP_URL}/health" | jq -e '.status == "ok"'
+            "${APP_URL}/health" | jq -e '.status == "ok" and .notification_scheduler.running == true'
 
       - name: Check and send due notifications
         if: ${{ env.NOTIFICATION_CRON_TOKEN != '' }}
@@ -36,8 +36,7 @@ jobs:
             "${APP_URL}/api/notifications/dispatch")"
           jq -e '.status == "completed" or .status == "quiet_hours"' <<<"${response}"
 
-      - name: Explain missing scheduler secret
+      - name: Report fallback status
         if: ${{ env.NOTIFICATION_CRON_TOKEN == '' }}
         run: |
-          echo "NOTIFICATION_CRON_TOKEN is required for the hourly fallback."
-          exit 1
+          echo "::warning::NOTIFICATION_CRON_TOKEN is not configured. The verified in-app scheduler remains active; add the secret to enable the hourly fallback."

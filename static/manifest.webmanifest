@@ -1,0 +1,17 @@
+{
+  "name": "NiveshDesk Personal Finance",
+  "short_name": "NiveshDesk",
+  "description": "Budget, portfolio and money reminders for Indian investors.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f7f3",
+  "theme_color": "#176f57",
+  "icons": [
+    {
+      "src": "/icons/icon-circle.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

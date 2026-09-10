@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { AccountUser, apiJson } from "./auth-client";
 
 type Props = { onAuthenticated: (user: AccountUser) => void };
@@ -10,12 +10,21 @@ export function AuthScreen({ onAuthenticated }: Props) {
   const [fullName, setFullName] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("+91");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [emailVerificationAvailable, setEmailVerificationAvailable] = useState(false);
+  const [capabilitiesLoaded, setCapabilitiesLoaded] = useState(false);
+
+  useEffect(() => {
+    apiJson("/api/auth/capabilities")
+      .then(result => setEmailVerificationAvailable(Boolean(result.email_verification_available)))
+      .catch(() => setEmailVerificationAvailable(false))
+      .finally(() => setCapabilitiesLoaded(true));
+  }, []);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true); setMessage("");
@@ -37,7 +46,7 @@ export function AuthScreen({ onAuthenticated }: Props) {
     event.preventDefault();
     run(async () => {
       const result = await apiJson("/api/auth/register", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ full_name: fullName, email, phone, password, verification_code: code }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ full_name: fullName, email, phone, password, verification_code: code || null }),
       });
       onAuthenticated(result.user);
     });
@@ -107,9 +116,10 @@ export function AuthScreen({ onAuthenticated }: Props) {
           <label>Email address<input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" required placeholder="you@example.com" /></label>
           <label>Mobile number<input value={phone} onChange={e => setPhone(e.target.value)} type="tel" autoComplete="tel" placeholder="+91 98765 43210" /></label>
           <label>Password<input value={password} onChange={e => setPassword(e.target.value)} type="password" autoComplete="new-password" minLength={8} required placeholder="At least 8 characters" /><small>Use uppercase, lowercase and a number.</small></label>
-          {codeSent && <label>Email verification code<input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" required placeholder="000000" /></label>}
+          {emailVerificationAvailable && codeSent && <label>Email verification code<input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" required placeholder="000000" /></label>}
           {message && <div className="auth-message" role="alert">{message}</div>}
-          {!codeSent ? <button type="button" className="auth-primary" onClick={requestRegistrationCode} disabled={busy || !email}>{busy ? "Sending…" : "Verify email"}</button> : <button className="auth-primary" disabled={busy}>{busy ? "Creating…" : "Create secure account"}</button>}
+          {emailVerificationAvailable && !codeSent ? <button type="button" className="auth-primary" onClick={requestRegistrationCode} disabled={busy || !email || !capabilitiesLoaded}>{busy ? "Sending…" : "Verify email"}</button> : <button className="auth-primary" disabled={busy || !capabilitiesLoaded}>{!capabilitiesLoaded ? "Checking registration…" : busy ? "Creating…" : "Create secure account"}</button>}
+          {!emailVerificationAvailable && <p className="auth-terms"><i className="fas fa-envelope-open" /> Email verification is unavailable right now; your password-protected account will still be created and kept separate.</p>}
           <p className="auth-terms"><i className="fas fa-shield-halved" /> Your session is protected with a secure, HttpOnly cookie.</p>
         </form> : <>
           <div className="auth-heading"><span className="auth-eyebrow">WELCOME BACK</span><h2>Open your workspace</h2><p>Choose the sign-in method that works for you.</p></div>

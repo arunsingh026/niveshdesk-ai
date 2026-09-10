@@ -9,7 +9,7 @@ from .models import Stock,ReviewRun,MonthlyExpense,ExpensePayment,SIPDatePrefere
 from datetime import date,datetime,timezone
 import hmac
 from .services.planner import build_recommendations
-from .services.scheduler import start_scheduler,monthly_review
+from .services.scheduler import start_scheduler,monthly_review,scheduler
 from .services.notifications import notification_service
 from .services.market_data import get_chart_data, MarketDataError
 from .services.sip_optimizer import (
@@ -34,7 +34,7 @@ class RegisterInput(BaseModel):
     email:str=Field(min_length=5,max_length=254)
     phone:str=Field(default="",max_length=20)
     password:str=Field(min_length=8,max_length=128)
-    verification_code:str=Field(pattern="^\\d{6}$")
+    verification_code:str|None=Field(default=None,pattern="^\\d{6}$")
 
 class PasswordLoginInput(BaseModel):
     identifier:str=Field(min_length=3,max_length=254)
@@ -205,8 +205,24 @@ def get_db():
         db.info["user_id"]=user_id
     try: yield db
     finally: db.close()
+
+def email_verification_available() -> bool:
+    return bool(settings.resend_api_key and settings.auth_code_pepper)
+
 @app.get("/health")
-def health(): return {"status":"ok","timezone":settings.app_timezone}
+def health():
+    return {
+        "status":"ok",
+        "timezone":settings.app_timezone,
+        "notification_scheduler":{"running":scheduler.running},
+    }
+
+@app.get("/api/auth/capabilities")
+def auth_capabilities():
+    return {
+        "registration_enabled":settings.allow_registration,
+        "email_verification_available":email_verification_available(),
+    }
 
 def validate_password_strength(password:str):
     if not any(char.islower() for char in password) or not any(char.isupper() for char in password) or not any(char.isdigit() for char in password):
@@ -225,8 +241,12 @@ def register_account(payload:RegisterInput,request:Request,response:Response,db:
         raise HTTPException(status_code=409,detail="An account already uses this email")
     if phone and db.scalar(select(User.id).where(User.phone==phone)):
         raise HTTPException(status_code=409,detail="An account already uses this phone number")
-    consume_email_code(db,email,payload.verification_code,purpose="register")
-    user=User(full_name=payload.full_name.strip(),email=email,phone=phone,password_hash=hash_password(payload.password),email_verified=True)
+    verification_available=email_verification_available()
+    if verification_available:
+        if not payload.verification_code:
+            raise HTTPException(status_code=400,detail="Enter the six-digit code sent to your email")
+        consume_email_code(db,email,payload.verification_code,purpose="register")
+    user=User(full_name=payload.full_name.strip(),email=email,phone=phone,password_hash=hash_password(payload.password),email_verified=verification_available)
     db.add(user); db.flush()
     db.add(NotificationPreference(user_id=user.id,email_address=email or ""))
     result=create_session(db,user,request,response)
