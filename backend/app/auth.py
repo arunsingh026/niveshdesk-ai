@@ -197,7 +197,7 @@ def issue_email_code(db: Session, email: str, purpose: str = "login") -> None:
         raise HTTPException(status_code=503, detail="Secure email code sign-in is not configured yet")
     code = f"{secrets.randbelow(1_000_000):06d}"
     record = VerificationCode(
-        user_id=user.id,
+        user_id=user.id if user else None,
         destination=email,
         purpose=purpose,
         code_hash=_code_hash(email, purpose, code),
