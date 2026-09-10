@@ -241,3 +241,35 @@ def test_owner_admin_provisioning_transfers_protected_legacy_data():
         assert owner.must_change_password is True
         assert verify_password("TempPass9", owner.password_hash)
         assert db.scalar(select(BudgetPlan)).user_id == owner.id
+
+
+def test_real_registration_code_flow_before_user_exists(monkeypatch):
+    from app import auth
+    from app.models import VerificationCode
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    monkeypatch.setattr(main, "SessionLocal", factory)
+    monkeypatch.setattr(main.settings, "resend_api_key", "test-key")
+    monkeypatch.setattr(main.settings, "auth_code_pepper", "test-pepper")
+    monkeypatch.setattr(auth.secrets, "randbelow", lambda limit: 123456)
+    requests = []
+    def send(url, **kwargs):
+        requests.append(kwargs["json"])
+        return type("Response", (), {"status_code": 200})()
+    monkeypatch.setattr(auth.httpx, "post", send)
+    client = TestClient(main.app)
+    assert client.post("/api/auth/register/code", json={"email": "new@example.com"}).status_code == 202
+    with factory() as db:
+        record = db.scalar(select(VerificationCode))
+        assert record.user_id is None
+        assert record.code_hash != "123456"
+        assert db.scalar(select(User)) is None
+    assert requests[0]["to"] == ["new@example.com"]
+    response = client.post("/api/auth/register", json={
+        "full_name": "New User", "email": "new@example.com", "password": "StrongPass9",
+        "verification_code": "123456",
+    })
+    assert response.status_code == 201
+    assert response.json()["user"]["email_verified"] is True
+    assert client.get("/api/auth/me").status_code == 200
