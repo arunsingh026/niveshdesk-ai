@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func,select,text
 from sqlalchemy.orm import Session
 from .db import init_db,SessionLocal,engine
-from .models import Stock,ReviewRun,MonthlyExpense,ExpensePayment,SIPDatePreference,SIPDateHistory,UserStockPreference,BudgetPlan,BudgetCategory,PortfolioHolding,NotificationPreference,NotificationReminder,NotificationDelivery,PushDevice,User,UserSession
+from .models import Stock,ReviewRun,MonthlyExpense,ExpensePayment,ExpenseSplitParticipant,SIPDatePreference,SIPDateHistory,UserStockPreference,BudgetPlan,BudgetCategory,PortfolioHolding,NotificationPreference,NotificationReminder,NotificationDelivery,PushDevice,User,UserSession
 from datetime import date,datetime,timezone
 import hmac
 from .services.planner import build_recommendations
@@ -20,7 +20,7 @@ from .services.sip_optimizer import (
     confirm_sip_date_change
 )
 from .config import settings
-from .services.notification_center import dispatch_all_users,dispatch_due,get_preferences,provider_status,public_firebase_config,send_test_notification,schedule_test_notification
+from .services.notification_center import dispatch_all_users,dispatch_due,get_preferences,provider_status,public_firebase_config,send_expense_split_reminder,send_test_notification,schedule_test_notification
 from fastapi import HTTPException
 from pydantic import BaseModel,Field
 from contextvars import ContextVar
@@ -116,6 +116,18 @@ class NotificationTestInput(BaseModel):
     channel:str=Field(pattern="^(push|email)$")
     delay_minutes:int=Field(default=0)
     device_token:str=Field(default="",max_length=4096)
+
+class ExpenseSplitPersonInput(BaseModel):
+    name:str=Field(min_length=1,max_length=120)
+    email:str=Field(default="",max_length=254)
+    phone:str=Field(default="",max_length=20)
+    share_amount:float=Field(gt=0)
+
+class ExpenseSplitInput(BaseModel):
+    participants:list[ExpenseSplitPersonInput]=Field(min_length=2,max_length=30)
+
+class ExpenseSplitReminderInput(BaseModel):
+    channels:list[str]=Field(default_factory=lambda:["email","sms"])
 @asynccontextmanager
 async def lifespan(app):
     init_db()
@@ -518,7 +530,7 @@ def register_push_device(payload:PushDeviceInput,db:Session=Depends(get_db)):
         else:
             item=PushDevice(token=payload.token,device_label=payload.device_label); db.add(item)
         db.commit(); db.refresh(item)
-        return {"id":item.id,"device_label":item.device_label,"enabled":item.enabled}
+        return {"id":item.id,"device_label":item.device_label,"enabled":item.enabled,"registered":True}
     with SessionLocal() as device_db:
         item=device_db.scalar(select(PushDevice).where(PushDevice.token==payload.token))
         if item:
@@ -526,7 +538,12 @@ def register_push_device(payload:PushDeviceInput,db:Session=Depends(get_db)):
         else:
             item=PushDevice(user_id=user_id,token=payload.token,device_label=payload.device_label); device_db.add(item)
         device_db.commit(); device_db.refresh(item)
-        return {"id":item.id,"device_label":item.device_label,"enabled":item.enabled}
+        return {"id":item.id,"device_label":item.device_label,"enabled":item.enabled,"registered":True}
+
+@app.post("/api/notifications/devices/status")
+def push_device_status(payload:PushDeviceInput,db:Session=Depends(get_db)):
+    item=db.scalar(select(PushDevice).where(PushDevice.token==payload.token,PushDevice.enabled.is_(True)))
+    return {"registered":bool(item),"last_seen_at":item.last_seen_at.isoformat()+"Z" if item else None}
 
 @app.delete("/api/notifications/devices")
 def unregister_push_device(payload:PushDeviceInput,db:Session=Depends(get_db)):
@@ -593,6 +610,8 @@ def delete_expense(expense_id:int,db:Session=Depends(get_db)):
     db.execute(select(ExpensePayment).where(ExpensePayment.expense_id==expense_id)).all()
     for payment in db.scalars(select(ExpensePayment).where(ExpensePayment.expense_id==expense_id)):
         db.delete(payment)
+    for participant in db.scalars(select(ExpenseSplitParticipant).where(ExpenseSplitParticipant.expense_id==expense_id)):
+        db.delete(participant)
 
     # Now delete the expense
     db.delete(existing)
@@ -677,6 +696,60 @@ def send_expense_notifications(expense_ids:list[int],db:Session=Depends(get_db))
             amount=expense.amount,due_at=now,recurrence="once",remind_before_minutes=0,channels="push,email"))
     db.commit()
     return {"status":"completed","result":dispatch_due(db,source="expense_manual")}
+
+def serialize_expense_split(item:ExpenseSplitParticipant):
+    return {"id":item.id,"expense_id":item.expense_id,"name":item.name,"email":item.email,"phone":item.phone,
+        "share_amount":float(item.share_amount),"is_paid":item.is_paid,
+        "paid_at":item.paid_at.isoformat()+"Z" if item.paid_at else None,
+        "last_reminded_at":item.last_reminded_at.isoformat()+"Z" if item.last_reminded_at else None}
+
+@app.get("/api/expense-splits/{expense_id}")
+def get_expense_split(expense_id:int,db:Session=Depends(get_db)):
+    expense=db.get(MonthlyExpense,expense_id)
+    if not expense: raise HTTPException(status_code=404,detail="Expense not found")
+    people=list(db.scalars(select(ExpenseSplitParticipant).where(ExpenseSplitParticipant.expense_id==expense_id).order_by(ExpenseSplitParticipant.id)).all())
+    return {"expense_id":expense_id,"expense_name":expense.name,"amount":float(expense.amount or 0),"participants":[serialize_expense_split(item) for item in people]}
+
+@app.put("/api/expense-splits/{expense_id}")
+def save_expense_split(expense_id:int,payload:ExpenseSplitInput,db:Session=Depends(get_db)):
+    expense=db.get(MonthlyExpense,expense_id)
+    if not expense: raise HTTPException(status_code=404,detail="Expense not found")
+    total=round(sum(item.share_amount for item in payload.participants),2)
+    if expense.amount is not None and abs(total-float(expense.amount))>0.01:
+        raise HTTPException(status_code=400,detail=f"Split shares must total ₹{float(expense.amount):,.2f}")
+    for person in payload.participants:
+        if not person.email and not person.phone:
+            raise HTTPException(status_code=400,detail=f"Add an email or phone number for {person.name}")
+    for existing in db.scalars(select(ExpenseSplitParticipant).where(ExpenseSplitParticipant.expense_id==expense_id)).all():
+        db.delete(existing)
+    db.flush()
+    created=[]
+    for person in payload.participants:
+        item=ExpenseSplitParticipant(expense_id=expense_id,name=person.name.strip(),email=normalize_email(person.email) if person.email else "",
+            phone=normalize_phone(person.phone) if person.phone else "",share_amount=person.share_amount)
+        db.add(item); created.append(item)
+    db.commit()
+    for item in created: db.refresh(item)
+    return {"participants":[serialize_expense_split(item) for item in created],"total":total}
+
+@app.patch("/api/expense-splits/{expense_id}/{participant_id}/paid")
+def set_expense_split_paid(expense_id:int,participant_id:int,paid:bool=True,db:Session=Depends(get_db)):
+    item=db.scalar(select(ExpenseSplitParticipant).where(ExpenseSplitParticipant.id==participant_id,ExpenseSplitParticipant.expense_id==expense_id))
+    if not item: raise HTTPException(status_code=404,detail="Split participant not found")
+    item.is_paid=paid; item.paid_at=datetime.utcnow() if paid else None
+    db.commit(); db.refresh(item)
+    return serialize_expense_split(item)
+
+@app.post("/api/expense-splits/{expense_id}/{participant_id}/remind")
+def remind_expense_split(expense_id:int,participant_id:int,payload:ExpenseSplitReminderInput,db:Session=Depends(get_db)):
+    channels=list(dict.fromkeys(payload.channels))
+    if not channels or any(channel not in {"email","sms"} for channel in channels):
+        raise HTTPException(status_code=400,detail="Choose email, phone, or both")
+    expense=db.get(MonthlyExpense,expense_id)
+    item=db.scalar(select(ExpenseSplitParticipant).where(ExpenseSplitParticipant.id==participant_id,ExpenseSplitParticipant.expense_id==expense_id))
+    if not expense or not item: raise HTTPException(status_code=404,detail="Expense split not found")
+    if item.is_paid: raise HTTPException(status_code=400,detail="This share is already marked paid")
+    return send_expense_split_reminder(db,expense,item,channels)
 
 @app.get("/api/sip/preferences")
 def get_sip_preferences(db:Session=Depends(get_db)):

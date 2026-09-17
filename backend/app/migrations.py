@@ -6,6 +6,7 @@ OWNED_TABLES = (
     "review_runs",
     "monthly_expenses",
     "expense_payments",
+    "expense_split_participants",
     "sip_date_preferences",
     "sip_date_history",
     "user_stock_preferences",
