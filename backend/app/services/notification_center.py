@@ -17,6 +17,7 @@ from ..models import (
     BudgetCategory,
     BudgetPlan,
     ExpensePayment,
+    ExpenseSplitParticipant,
     MonthlyExpense,
     NotificationDelivery,
     NotificationDispatchRun,
@@ -41,6 +42,7 @@ def get_preferences(db: Session) -> NotificationPreference:
 
 def provider_status(db: Session) -> dict[str, Any]:
     preference = get_preferences(db)
+    current_user = db.get(User, db.info.get("user_id")) if db.info.get("user_id") else None
     push_configured = bool(
         settings.firebase_project_id
         and settings.firebase_service_account_json
@@ -54,6 +56,9 @@ def provider_status(db: Session) -> dict[str, Any]:
         NotificationDispatchRun.source == "in_app"
     ).order_by(NotificationDispatchRun.checked_at.desc()))
     last_delivery = db.scalar(select(NotificationDelivery).order_by(NotificationDelivery.sent_at.desc()))
+    last_email = db.scalar(select(NotificationDelivery).where(
+        NotificationDelivery.channel == "email"
+    ).order_by(NotificationDelivery.sent_at.desc()))
     in_app_healthy = bool(last_in_app_run and last_in_app_run.status != "failed" and
         (datetime.utcnow() - last_in_app_run.checked_at).total_seconds() < 180)
     return {
@@ -65,7 +70,13 @@ def provider_status(db: Session) -> dict[str, Any]:
         "email": {
             "enabled": preference.email_enabled,
             "configured": bool(settings.resend_api_key and preference.email_address),
+            "healthy": bool(settings.resend_api_key and preference.email_address and (not last_email or last_email.status == "sent")),
+            "last_error": _safe_error(last_email.error) if last_email and last_email.status == "failed" else "",
             "address": preference.email_address,
+        },
+        "sms": {
+            "configured": bool(settings.twilio_account_sid and settings.twilio_auth_token and (settings.twilio_from_number or settings.twilio_messaging_service_sid)),
+            "phone": current_user.phone if current_user else "",
         },
         "scheduler": {
             "configured": bool(settings.notification_cron_token),
@@ -155,8 +166,47 @@ def _send_email(to: str, title: str, body: str, html: str) -> tuple[bool, str]:
             json={"from": settings.resend_from, "to": [to], "subject": title, "html": html, "text": body},
             timeout=20,
         )
-        response.raise_for_status()
-        return True, ""
+        if response.status_code < 300:
+            return True, ""
+        try:
+            payload = response.json()
+            detail = payload.get("message") or payload.get("error") or response.text
+        except (ValueError, TypeError):
+            detail = response.text
+        detail = str(detail).strip()[:300]
+        if response.status_code == 400 and ("domain" in detail.lower() or "sender" in detail.lower() or "from" in detail.lower()):
+            return False, f"Resend rejected the sender address. Verify RESEND_FROM/domain in Resend: {detail}"
+        if response.status_code == 403:
+            return False, f"Resend denied this recipient or sender. Verify the domain and recipient: {detail}"
+        return False, f"Resend HTTP {response.status_code}: {detail or 'Email request was rejected'}"
+    except Exception as exc:
+        return False, str(exc)[:300]
+
+
+def _send_sms(to: str, title: str, body: str) -> tuple[bool, str]:
+    if not settings.twilio_account_sid or not settings.twilio_auth_token:
+        return False, "SMS provider is not configured"
+    if not (settings.twilio_from_number or settings.twilio_messaging_service_sid):
+        return False, "Twilio sender number or messaging service is not configured"
+    data = {"To": to, "Body": f"{title}\n{body}"[:1500]}
+    if settings.twilio_messaging_service_sid:
+        data["MessagingServiceSid"] = settings.twilio_messaging_service_sid
+    else:
+        data["From"] = settings.twilio_from_number
+    try:
+        response = httpx.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Messages.json",
+            data=data,
+            auth=(settings.twilio_account_sid, settings.twilio_auth_token),
+            timeout=20,
+        )
+        if response.status_code < 300:
+            return True, ""
+        try:
+            detail = response.json().get("message") or response.text
+        except (ValueError, TypeError):
+            detail = response.text
+        return False, f"Twilio HTTP {response.status_code}: {str(detail).strip()[:300]}"
     except Exception as exc:
         return False, str(exc)[:300]
 
@@ -180,7 +230,7 @@ def _record(db: Session, event: dict[str, Any], channel: str, ok: bool, error: s
 
 def _safe_error(error: str) -> str:
     cleaned = error or ""
-    for secret in (settings.resend_api_key, settings.notification_cron_token, settings.firebase_service_account_json):
+    for secret in (settings.resend_api_key, settings.notification_cron_token, settings.firebase_service_account_json, settings.twilio_auth_token):
         if secret:
             cleaned = cleaned.replace(secret, "[redacted]")
     return cleaned[:500]
@@ -351,6 +401,8 @@ def dispatch_due(db: Session, now: datetime | None = None, source: str = "manual
             elif channel == "email" and (preference.email_enabled or event.get("is_test")) and settings.resend_api_key and preference.email_address:
                 html = _email_html(event["title"], event["body"], "Open Notification Center", event.get("details", ""))
                 ok, error = _send_email(preference.email_address, event["title"], event["body"], html)
+            elif channel == "sms" and current_user_phone(db) and settings.twilio_account_sid and settings.twilio_auth_token:
+                ok, error = _send_sms(current_user_phone(db), event["title"], event["body"])
             else:
                 ok, error = False, f"{channel.title()} channel is not enabled or configured"
             _record(db, event, channel, ok, error)
@@ -371,6 +423,45 @@ def dispatch_due(db: Session, now: datetime | None = None, source: str = "manual
         db.commit()
     _record_dispatch_run(db, source, "completed", len(events))
     return {"status": "completed", "checked_at": now_utc.isoformat() + "Z", "events": len(events), "results": results}
+
+
+def current_user_phone(db: Session) -> str:
+    user_id = db.info.get("user_id")
+    user = db.get(User, user_id) if user_id else None
+    return (user.phone or "") if user else ""
+
+
+def send_expense_split_reminder(
+    db: Session, expense: MonthlyExpense, participant: ExpenseSplitParticipant, channels: list[str]
+) -> dict[str, Any]:
+    title = f"Reminder: your share of {expense.name}"
+    body = f"Your share is ₹{float(participant.share_amount):,.2f}. Please settle it when convenient."
+    event = {"event_key": f"split-{participant.id}-{uuid.uuid4().hex}", "kind": "expense_split", "title": title}
+    results: dict[str, str] = {}
+    manual_sms = None
+    if "email" in channels:
+        if not participant.email:
+            results["email"] = "missing_contact"
+        elif not settings.resend_api_key:
+            results["email"] = "not_configured"
+        else:
+            ok, error = _send_email(participant.email, title, body, _email_html(title, body, "Open expenses"))
+            _record(db, event, "email", ok, error)
+            results["email"] = "sent" if ok else error
+    if "sms" in channels:
+        if not participant.phone:
+            results["sms"] = "missing_contact"
+        elif settings.twilio_account_sid and settings.twilio_auth_token:
+            ok, error = _send_sms(participant.phone, title, body)
+            _record(db, event, "sms", ok, error)
+            results["sms"] = "sent" if ok else error
+        else:
+            manual_sms = {"phone": participant.phone, "body": f"{title}\n{body}"}
+            results["sms"] = "ready_on_device"
+    if any(value in {"sent", "ready_on_device"} for value in results.values()):
+        participant.last_reminded_at = datetime.utcnow()
+    db.commit()
+    return {"results": results, "manual_sms": manual_sms}
 
 
 def dispatch_all_users(source: str = "manual") -> dict[str, Any]:

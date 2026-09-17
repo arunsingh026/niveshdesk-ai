@@ -118,6 +118,19 @@
 .expenses-page .month-summary-card { gap:0; }
 .expenses-page .expense-item.paid .expense-name { opacity:1; }
 .expenses-page .expense-item { align-items:center; }
+
+.split-modal { max-width:760px; max-height:90vh; overflow:auto; }
+.split-help { color:#61736a; font-size:13px; line-height:1.55; margin:18px 0; }
+.split-people { display:grid; gap:10px; }
+.split-person { display:grid; grid-template-columns:1fr 1.25fr 1fr .8fr auto auto; gap:8px; padding:12px; border:1px solid #dfe8e2; border-radius:14px; background:#f8fbf8; align-items:end; }
+.split-person input { width:100%; min-width:0; border:1px solid #d5dfd8; border-radius:9px; padding:10px; background:white; }
+.split-person label span { display:block; font-size:10px; color:#718078; margin-bottom:4px; }
+.split-remind,.split-remove,.split-add { border:0; border-radius:9px; padding:10px 12px; cursor:pointer; }
+.split-remind,.split-add { background:#e5f2e9; color:#17644e; font-weight:700; }
+.split-remove { color:#a6473f; background:#f9e9e7; }
+.split-add { margin:12px 0; }
+.split-message { border-radius:10px; background:#f0f7f2; padding:11px; color:#245c49; }
+@media(max-width:700px) { .split-modal { width:calc(100% - 20px); } .split-person { grid-template-columns:1fr 1fr; } .split-person>input:first-child { grid-column:1/3; } .split-remind { grid-column:1/2; } }
 .expenses-page .expense-name { font-size:13px; }
 .expenses-page .workspace-add { color:#fff; }
 @media(max-width:640px) { .expenses-page .expense-name { font-size:12px; } }

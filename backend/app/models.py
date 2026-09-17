@@ -87,6 +87,19 @@ class ExpensePayment(UserOwned,Base):
     paid_date:Mapped[datetime|None]=mapped_column(Date,nullable=True); is_paid:Mapped[bool]=mapped_column(Boolean,default=False)
     notes:Mapped[str]=mapped_column(Text,default="")
 
+class ExpenseSplitParticipant(UserOwned,Base):
+    __tablename__="expense_split_participants"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    expense_id:Mapped[int]=mapped_column(Integer,ForeignKey("monthly_expenses.id"),index=True)
+    name:Mapped[str]=mapped_column(String(120))
+    email:Mapped[str]=mapped_column(String(254),default="")
+    phone:Mapped[str]=mapped_column(String(20),default="")
+    share_amount:Mapped[Decimal]=mapped_column(Numeric(14,2),default=0)
+    is_paid:Mapped[bool]=mapped_column(Boolean,default=False)
+    paid_at:Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
+    last_reminded_at:Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
 class SIPDatePreference(UserOwned,Base):
     __tablename__="sip_date_preferences"
     __table_args__=(UniqueConstraint("user_id",name="uq_sip_preference_user"),)

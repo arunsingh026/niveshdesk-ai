@@ -60,6 +60,7 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
   const [aiInsights, setAiInsights] = useState<ExpenseInsight[]>([]);
+  const [splitExpense, setSplitExpense] = useState<Expense | null>(null);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;
@@ -491,6 +492,9 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
                 </div>
                 <div className="expense-row-amount"><strong>{expense.amount == null ? "Not set" : `\u20b9${Number(expense.amount).toLocaleString("en-IN")}`}</strong><span className={expense.is_paid ? "status-paid" : "status-unpaid"}>{expense.is_paid ? "Paid" : "Unpaid"}</span></div>
                 <div className="expense-actions">
+                  <button onClick={() => setSplitExpense(expense)} className="expense-edit-btn" title="Split expense and send reminders" aria-label={`Split ${expense.name}`}>
+                    <i className="fas fa-user-group"></i>
+                  </button>
                   <button
                     onClick={() => handleEditClick(expense)}
                     className="expense-edit-btn"
@@ -596,8 +600,65 @@ export function MonthlyExpenses({ onLogout }: MonthlyExpensesProps) {
           }}
         />
       )}
+      {splitExpense && <ExpenseSplitModal expense={splitExpense} onClose={() => setSplitExpense(null)} />}
     </main>
   );
+}
+
+type SplitPerson = { id?: number; name: string; email: string; phone: string; share_amount: number; is_paid?: boolean };
+
+function ExpenseSplitModal({ expense, onClose }: { expense: Expense; onClose: () => void }) {
+  const initialShare = Number(((expense.amount || 0) / 2).toFixed(2));
+  const [people, setPeople] = useState<SplitPerson[]>([
+    { name: "", email: "", phone: "", share_amount: initialShare },
+    { name: "", email: "", phone: "", share_amount: Number(((expense.amount || 0) - initialShare).toFixed(2)) },
+  ]);
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/api/expense-splits/${expense.id}`).then(r => r.json()).then(data => {
+      if (data.participants?.length) setPeople(data.participants);
+    }).catch(() => undefined);
+  }, [expense.id]);
+
+  const update = (index: number, patch: Partial<SplitPerson>) => setPeople(items => items.map((item, i) => i === index ? { ...item, ...patch } : item));
+  const save = async () => {
+    setSaving(true); setMessage("");
+    try {
+      const response = await fetch(`${API}/api/expense-splits/${expense.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ participants: people }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Could not save this split");
+      setPeople(data.participants); setMessage("Split saved. You can now send individual reminders.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save this split"); }
+    finally { setSaving(false); }
+  };
+  const remind = async (person: SplitPerson) => {
+    if (!person.id) { setMessage("Save the split before sending reminders."); return; }
+    const channels = [person.email && "email", person.phone && "sms"].filter(Boolean);
+    const response = await fetch(`${API}/api/expense-splits/${expense.id}/${person.id}/remind`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channels }) });
+    const data = await response.json();
+    if (!response.ok) { setMessage(data.detail || "Reminder failed"); return; }
+    if (data.manual_sms) window.location.href = `sms:${data.manual_sms.phone}?&body=${encodeURIComponent(data.manual_sms.body)}`;
+    setMessage(data.manual_sms ? "Email sent where selected; your phone opened the free SMS reminder." : "Reminder sent.");
+  };
+  const total = people.reduce((sum, item) => sum + Number(item.share_amount || 0), 0);
+
+  return <div className="modal-overlay" onClick={onClose}><div className="modal-content split-modal" role="dialog" aria-modal="true" aria-label={`Split ${expense.name}`} onClick={event => event.stopPropagation()}>
+    <div className="modal-header"><div><h2>Split {expense.name}</h2><small>Bill ₹{Number(expense.amount || 0).toLocaleString("en-IN")} · assigned ₹{total.toLocaleString("en-IN")}</small></div><button onClick={onClose} className="modal-close" aria-label="Close dialog"><i className="fas fa-times" /></button></div>
+    <p className="split-help">Add each person’s email or Indian phone number. Email uses Resend; phone reminders use configured SMS or open your phone’s free Messages app.</p>
+    <div className="split-people">{people.map((person, index) => <div className="split-person" key={person.id || index}>
+      <input aria-label="Name" placeholder="Name" value={person.name} onChange={e => update(index, { name: e.target.value })} />
+      <input aria-label="Email" type="email" placeholder="Email (optional)" value={person.email} onChange={e => update(index, { email: e.target.value })} />
+      <input aria-label="Phone" type="tel" placeholder="Phone (optional)" value={person.phone} onChange={e => update(index, { phone: e.target.value })} />
+      <label><span>Share ₹</span><input aria-label="Share amount" type="number" min="0.01" step="0.01" value={person.share_amount} onChange={e => update(index, { share_amount: Number(e.target.value) })} /></label>
+      {person.id && <button type="button" className="split-remind" onClick={() => remind(person)} disabled={person.is_paid}><i className="fas fa-paper-plane" /> {person.is_paid ? "Paid" : "Remind"}</button>}
+      {people.length > 2 && <button type="button" className="split-remove" aria-label="Remove person" onClick={() => setPeople(items => items.filter((_, i) => i !== index))}><i className="fas fa-trash" /></button>}
+    </div>)}</div>
+    <button className="split-add" type="button" onClick={() => setPeople(items => [...items, { name: "", email: "", phone: "", share_amount: 0 }])}><i className="fas fa-plus" /> Add person</button>
+    {message && <p className="split-message" role="status">{message}</p>}
+    <div className="form-actions"><button type="button" className="btn-cancel" onClick={onClose}>Close</button><button type="button" className="btn-submit" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save split"}</button></div>
+  </div></div>;
 }
 
 interface DeleteConfirmModalProps {

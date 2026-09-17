@@ -25,7 +25,8 @@ type Device = { id: number; label: string; last_seen_at: string };
 type Overview = {
   status: {
     push: { enabled: boolean; configured: boolean; devices: number };
-    email: { enabled: boolean; configured: boolean; address: string };
+    email: { enabled: boolean; configured: boolean; healthy: boolean; last_error: string; address: string };
+    sms: { configured: boolean; phone: string };
     scheduler: { configured: boolean; frequency: string; in_app_enabled: boolean; in_app_healthy: boolean; hourly_fallback_enabled: boolean; last_check_at: string | null; last_check_status: string; last_check_source: string };
     last_delivery: Omit<Delivery, "id" | "kind"> | null; free_tier: boolean;
   };
@@ -66,7 +67,18 @@ export function NotificationSettings({ onLogout }: { onLogout?: () => void }) {
     const { getPushDeviceStatus } = await import("./push-notifications");
     setDeviceStatus(await getPushDeviceStatus());
   };
-  useEffect(() => { loadOverview(); refreshDeviceStatus(); }, []);
+  useEffect(() => {
+    loadOverview();
+    (async () => {
+      const { getPushDeviceStatus, repairPushRegistration } = await import("./push-notifications");
+      const initial = await getPushDeviceStatus();
+      if (initial.supported && initial.permission === "granted" && initial.installed && !initial.tokenPresent) {
+        await repairPushRegistration(payload => setMessage(payload.notification?.title || "New notification received"));
+      }
+      await refreshDeviceStatus();
+      await loadOverview();
+    })();
+  }, []);
 
   const upcoming = useMemo(() => (overview?.reminders || []).filter(item => item.enabled).sort((a, b) => +new Date(a.due_at) - +new Date(b.due_at)), [overview]);
 
@@ -113,6 +125,7 @@ export function NotificationSettings({ onLogout }: { onLogout?: () => void }) {
       else if (reason === "install_required") setMessage("On iPhone: Share → Add to Home Screen, open NiveshDesk there, then enable alerts.");
       else if (reason === "not_configured") setMessage("Firebase setup is required after this release is deployed.");
       else if (reason === "denied") setMessage("Notifications are blocked in this browser. Allow them in site settings and try again.");
+      else if (reason === "registration_failed") setMessage("Firebase created a token, but the server could not register this device. Sign in again and retry.");
       else setMessage("This browser does not support web push notifications.");
       await loadOverview();
       await refreshDeviceStatus();
@@ -158,7 +171,7 @@ export function NotificationSettings({ onLogout }: { onLogout?: () => void }) {
 
         <section className="channel-grid" aria-label="Delivery channels">
           <article className="channel-card"><div className="channel-icon push"><i className="fas fa-mobile-screen-button" /></div><div><span className="channel-label">MOBILE & WEB</span><h2>Push alerts</h2><p>Instant reminders, even when NiveshDesk is closed.</p></div><div className="channel-footer"><span className={`live-pill ${overview.status.push.configured && overview.status.push.devices ? "active" : ""}`}><i className="fas fa-circle" /> {overview.status.push.devices ? `${overview.status.push.devices} device connected` : overview.status.push.configured ? "Ready to connect" : "Setup needed"}</span><button onClick={enablePush} disabled={saving}>{overview.status.push.devices ? "Add this device" : "Enable alerts"}</button></div></article>
-          <article className="channel-card"><div className="channel-icon email"><i className="fas fa-envelope-open-text" /></div><div><span className="channel-label">MONTHLY DIGESTS</span><h2>Email by Resend</h2><p>Beautiful portfolio reports and important failure alerts.</p></div><div className="email-control"><input type="email" aria-label="Notification email" placeholder="you@example.com" value={overview.preferences.email_address} onChange={event => setOverview({ ...overview, preferences: { ...overview.preferences, email_address: event.target.value } })} /><button onClick={() => savePreferences({ ...overview.preferences, email_enabled: Boolean(overview.preferences.email_address) }, "Email preferences saved")}>Save</button></div><span className={`live-pill ${overview.status.email.configured ? "active" : ""}`}><i className="fas fa-circle" /> {overview.status.email.configured ? "Email active" : "Resend setup needed"}</span></article>
+          <article className="channel-card"><div className="channel-icon email"><i className="fas fa-envelope-open-text" /></div><div><span className="channel-label">MONTHLY DIGESTS</span><h2>Email by Resend</h2><p>Beautiful portfolio reports and important failure alerts.</p></div><div className="email-control"><input type="email" aria-label="Notification email" placeholder="you@example.com" value={overview.preferences.email_address} onChange={event => setOverview({ ...overview, preferences: { ...overview.preferences, email_address: event.target.value } })} /><button onClick={() => savePreferences({ ...overview.preferences, email_enabled: Boolean(overview.preferences.email_address) }, "Email preferences saved")}>Save</button></div><span className={`live-pill ${overview.status.email.healthy ? "active" : ""}`}><i className="fas fa-circle" /> {overview.status.email.healthy ? "Email active" : overview.status.email.configured ? "Delivery needs attention" : "Resend setup needed"}</span>{overview.status.email.last_error && <small>{overview.status.email.last_error}</small>}</article>
           <article className="channel-card scheduler-card"><div className="channel-icon schedule"><i className="fas fa-clock" /></div><div><span className="channel-label">AUTOMATIC CHECKS</span><h2>Smart reminder engine</h2><p>Checks every minute in the app, with GitHub Actions as an hourly fallback.</p></div><div className="channel-footer"><span className={`live-pill ${overview.status.scheduler.configured ? "active" : ""}`}><i className="fas fa-circle" /> {overview.status.scheduler.configured ? "Fallback protected" : "Secret needed"}</span><b>₹0 / month</b></div></article>
         </section>
 
@@ -179,7 +192,8 @@ export function NotificationSettings({ onLogout }: { onLogout?: () => void }) {
               <StatusRow icon="fa-mobile-screen" label="Device permission" value={deviceStatus?.permission === "granted" ? "Allowed" : deviceStatus?.permission === "denied" ? "Blocked" : deviceStatus?.permission === "unsupported" ? "Unsupported" : "Not requested"} ok={deviceStatus?.permission === "granted"} />
               {deviceStatus?.ios && <StatusRow icon="fa-arrow-up-from-bracket" label="iPhone install" value={deviceStatus.installed ? "Home Screen app" : "Add to Home Screen"} ok={deviceStatus.installed} />}
               <StatusRow icon="fa-link" label="This device token" value={deviceStatus?.tokenPresent ? "Registered" : "Not registered"} ok={Boolean(deviceStatus?.tokenPresent)} />
-              <StatusRow icon="fa-envelope" label="Resend email" value={overview.status.email.configured ? "Configured" : "Setup needed"} ok={overview.status.email.configured} />
+              <StatusRow icon="fa-envelope" label="Resend email" value={overview.status.email.healthy ? "Ready" : overview.status.email.configured ? "Check sender" : "Setup needed"} ok={overview.status.email.healthy} />
+              <StatusRow icon="fa-comment-sms" label="Phone reminders" value={overview.status.sms.configured ? "Automatic SMS" : overview.status.sms.phone ? "Free phone handoff" : "Add profile phone"} ok={Boolean(overview.status.sms.phone)} />
               <StatusRow icon="fa-clock-rotate-left" label="Minute scheduler" value={overview.status.scheduler.in_app_healthy ? "Running" : overview.status.scheduler.last_check_at ? "Needs attention" : "Starting"} ok={overview.status.scheduler.in_app_healthy} />
               <StatusRow icon="fa-github" label="Hourly fallback" value={overview.status.scheduler.hourly_fallback_enabled ? "Protected" : "Secret needed"} ok={overview.status.scheduler.hourly_fallback_enabled} />
               <div className="last-check"><span>LAST SCHEDULER CHECK</span><strong>{overview.status.scheduler.last_check_at ? new Date(overview.status.scheduler.last_check_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Waiting for first run"}</strong><small>{overview.status.scheduler.last_check_source || "in-app scheduler"} · {overview.status.scheduler.last_check_status}</small></div>
