@@ -18,6 +18,9 @@ OWNED_TABLES = (
     "push_devices",
     "notification_deliveries",
     "notification_dispatch_runs",
+    "pdf_templates",
+    "pdf_saved_values",
+    "pdf_generations",
 )
 
 
