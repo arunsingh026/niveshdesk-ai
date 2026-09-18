@@ -31,6 +31,7 @@ export function WorkspaceHeader({ section, onLogout }: { section: string; onLogo
         <button aria-current={section === "Budget" ? "page" : undefined} onClick={() => navigate("/budget")}>Budget</button>
         <button aria-current={section === "Portfolio" ? "page" : undefined} onClick={() => navigate("/portfolio")}>Portfolio</button>
         <button aria-current={section === "Notifications" ? "page" : undefined} onClick={() => navigate("/notifications")}>Notifications</button>
+        <button aria-current={section === "PDF forms" ? "page" : undefined} onClick={() => navigate("/pdf-forms")}>PDF forms</button>
       </div>
       <button className="suite-mobile-action" aria-current={section === "Notifications" ? "page" : undefined} onClick={() => navigate("/notifications")} aria-label="Notifications"><i className="fas fa-bell" /></button>
       {onLogout && <button className="suite-logout" onClick={onLogout} aria-label="Log out"><i className="fas fa-sign-out-alt" /><span>Logout</span></button>}
