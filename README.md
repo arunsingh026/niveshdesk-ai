@@ -8,6 +8,7 @@ A multi-user, India-first personal finance and investment workspace.
 - Monthly scheduler (default: 5th, 09:00 Asia/Kolkata)
 - Email and WhatsApp notification adapters
 - Mobile/web Notification Center with FCM push, Resend reports, smart finance reminders, quiet hours, and delivery history
+- Private AI PDF Form Filler with AcroForm/text/OCR analysis, encrypted answer memory, original-preserving generation, and optional Azure Blob storage
 - Private user registration with isolated budgets, expenses, portfolios, reminders, devices, and preferences
 - Secure HttpOnly sessions, salted PBKDF2 password hashing, phone-number/password login, and Resend email-code login
 - Manual trade execution only; no broker orders
