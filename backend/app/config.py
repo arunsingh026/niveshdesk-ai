@@ -1,6 +1,12 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     database_url: str
+    # Supabase's session pooler is the recommended target for this persistent
+    # FastAPI service. Set SSL to "require" in production; local Docker can
+    # keep this blank because its Postgres container does not use TLS.
+    database_ssl_mode: str = ""
+    database_pool_size: int = 5
+    database_max_overflow: int = 5
     app_timezone: str = "Asia/Kolkata"
     monthly_budget: int = 35000
     mf_budget: int = 30000

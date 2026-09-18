@@ -1,7 +1,29 @@
 from sqlalchemy import create_engine,event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker, with_loader_criteria
 from .config import settings
-engine = create_engine(settings.database_url, pool_pre_ping=True)
+
+
+def normalize_database_url(url: str) -> str:
+    """Use the installed Psycopg 3 driver for provider-issued Postgres URLs."""
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url.removeprefix("postgres://")
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url.removeprefix("postgresql://")
+    return url
+
+
+database_url = normalize_database_url(settings.database_url)
+engine_options = {"pool_pre_ping": True}
+if database_url.startswith("postgresql+psycopg://"):
+    engine_options.update(
+        pool_size=settings.database_pool_size,
+        max_overflow=settings.database_max_overflow,
+        pool_recycle=300,
+    )
+    if settings.database_ssl_mode:
+        engine_options["connect_args"] = {"sslmode": settings.database_ssl_mode}
+
+engine = create_engine(database_url, **engine_options)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 class Base(DeclarativeBase): pass
 
