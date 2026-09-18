@@ -227,3 +227,36 @@ class NotificationDispatchRun(UserOwned,Base):
     events:Mapped[int]=mapped_column(Integer,default=0)
     error:Mapped[str]=mapped_column(Text,default="")
     checked_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,index=True)
+
+class PdfTemplate(UserOwned,Base):
+    __tablename__="pdf_templates"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    name:Mapped[str]=mapped_column(String(160))
+    original_filename:Mapped[str]=mapped_column(String(255))
+    storage_key:Mapped[str]=mapped_column(String(500),unique=True)
+    sha256:Mapped[str]=mapped_column(String(64),index=True)
+    page_count:Mapped[int]=mapped_column(Integer,default=1)
+    analysis_mode:Mapped[str]=mapped_column(String(30),default="text")
+    fields_json:Mapped[str]=mapped_column(Text,default="[]")
+    analysis_json:Mapped[str]=mapped_column(Text,default="{}")
+    is_signed:Mapped[bool]=mapped_column(Boolean,default=False)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    updated_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,onupdate=datetime.utcnow)
+
+class PdfSavedValue(UserOwned,Base):
+    __tablename__="pdf_saved_values"
+    __table_args__=(UniqueConstraint("user_id","field_key",name="uq_pdf_saved_value_user_key"),)
+    id:Mapped[int]=mapped_column(primary_key=True)
+    field_key:Mapped[str]=mapped_column(String(120),index=True)
+    label:Mapped[str]=mapped_column(String(200),default="")
+    encrypted_value:Mapped[str]=mapped_column(Text)
+    updated_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,onupdate=datetime.utcnow)
+
+class PdfGeneration(UserOwned,Base):
+    __tablename__="pdf_generations"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    template_id:Mapped[int]=mapped_column(Integer,ForeignKey("pdf_templates.id"),index=True)
+    output_filename:Mapped[str]=mapped_column(String(255))
+    storage_key:Mapped[str]=mapped_column(String(500),unique=True)
+    values_json:Mapped[str]=mapped_column(Text,default="{}")
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,index=True)
