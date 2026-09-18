@@ -76,6 +76,15 @@ export function Dashboard({ onLogout, userName, isAdmin = false }: DashboardProp
       color: "#8b5cf6",
       status: "checking"
     },
+    {
+      name: "AI PDF Form Filler",
+      description: "Analyze, remember and regenerate forms without changing the original",
+      icon: "fa-file-pen",
+      route: "/pdf-forms",
+      apiUrl: `${API_BASE}/api/pdf-forms/status`,
+      color: "#0f766e",
+      status: "checking"
+    },
     ...(isAdmin ? [{
       name: "Admin Console",
       description: "Manage users, security and protected data access",

@@ -12,6 +12,7 @@ import { BudgetPlanner } from "./BudgetPlanner";
 import { InvestmentPortfolio } from "./InvestmentPortfolio";
 import { AdminPage } from "./AdminPage";
 import { ChangePasswordScreen } from "./ChangePasswordScreen";
+import { PdfFormFiller } from "./PdfFormFiller";
 import "./styles.css";
 import "./dashboard.css";
 import "./auth.css";
@@ -23,6 +24,7 @@ import "./suite-theme.css";
 import "./money-workspaces.css";
 import "./mobile-responsive.css";
 import "./admin.css";
+import "./pdf-form-filler.css";
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
@@ -64,6 +66,7 @@ function App() {
         <Route path="/expenses" element={<MonthlyExpenses onLogout={handleLogout} />} />
         <Route path="/budget" element={<BudgetPlanner onLogout={handleLogout} />} />
         <Route path="/portfolio" element={<InvestmentPortfolio onLogout={handleLogout} />} />
+        <Route path="/pdf-forms" element={<PdfFormFiller onLogout={handleLogout} />} />
         <Route path="/admin" element={user.role === "admin" ? <AdminPage onLogout={handleLogout} currentUserId={user.id} /> : <Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

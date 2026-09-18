@@ -1021,6 +1021,11 @@ def delete_holding(holding_id:int,db:Session=Depends(get_db)):
         raise HTTPException(status_code=404,detail="Holding not found")
     db.delete(item); db.commit()
     return {"status":"ok"}
+
+# Reusable, user-isolated PDF analysis, memory, storage and generation workspace.
+from .pdf_api import create_pdf_router
+app.include_router(create_pdf_router(get_db))
+
 # Serve the production frontend from the same origin as the API.
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles

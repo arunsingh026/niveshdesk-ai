@@ -12,3 +12,9 @@ twilio==9.4.0
 jinja2==3.1.6
 a2wsgi==1.10.10
 google-auth==2.40.3
+python-multipart==0.0.20
+pypdf==6.1.1
+reportlab==4.4.4
+pymupdf==1.26.6
+cryptography==46.0.1
+azure-storage-blob==12.26.0

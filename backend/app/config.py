@@ -43,5 +43,11 @@ class Settings(BaseSettings):
     auth_cookie_name: str = "niveshdesk_session"
     auth_code_pepper: str = ""
     allow_registration: bool = True
+    pdf_storage_path: str = "./data/pdf_forms"
+    pdf_max_upload_mb: int = 20
+    pdf_max_pages: int = 30
+    pdf_value_encryption_key: str = ""
+    azure_storage_connection_string: str = ""
+    azure_pdf_container: str = "niveshdesk-pdf-forms"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 settings = Settings()
