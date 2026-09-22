@@ -7,6 +7,7 @@ import { AuthScreen } from "./AuthScreen";
 import { AccountUser, API } from "./auth-client";
 import { NotificationSettings } from "./NotificationSettings";
 import { MonthlyExpenses } from "./MonthlyExpenses";
+import { ExpenseSplits } from "./ExpenseSplits";
 import { LoadingScreen } from "./LoadingScreen";
 import { BudgetPlanner } from "./BudgetPlanner";
 import { InvestmentPortfolio } from "./InvestmentPortfolio";
@@ -19,6 +20,7 @@ import "./notification-settings.css";
 import "./monthly-expenses.css";
 import "./loading-screen.css";
 import "./expenses-workspace.css";
+import "./expense-splits.css";
 import "./suite-theme.css";
 import "./money-workspaces.css";
 import "./mobile-responsive.css";
@@ -62,6 +64,7 @@ function App() {
         <Route path="/stock-planner" element={<StockPlanner onLogout={handleLogout} />} />
         <Route path="/notifications" element={<NotificationSettings onLogout={handleLogout} />} />
         <Route path="/expenses" element={<MonthlyExpenses onLogout={handleLogout} />} />
+        <Route path="/splits" element={<ExpenseSplits onLogout={handleLogout} />} />
         <Route path="/budget" element={<BudgetPlanner onLogout={handleLogout} />} />
         <Route path="/portfolio" element={<InvestmentPortfolio onLogout={handleLogout} />} />
         <Route path="/admin" element={user.role === "admin" ? <AdminPage onLogout={handleLogout} currentUserId={user.id} /> : <Navigate to="/" replace />} />

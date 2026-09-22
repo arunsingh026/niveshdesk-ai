@@ -18,7 +18,7 @@ html,body,#root{width:100%;min-height:100%;overflow-x:hidden}
   .suite-brand b,.suite-brand small{display:none}
   .suite-mobile-action[aria-current=page]{background:#edf5ef;color:var(--suite-green)}
 
-  .suite-mobile-tabs{position:fixed;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));left:8px;right:8px;bottom:max(8px,env(safe-area-inset-bottom));z-index:900;height:var(--mobile-tab-height);padding:6px 5px;background:#fffffff2;border:1px solid #dce6df;border-radius:17px;box-shadow:0 9px 32px #173a2e26;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+  .suite-mobile-tabs{position:fixed;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));left:8px;right:8px;bottom:max(8px,env(safe-area-inset-bottom));z-index:900;height:var(--mobile-tab-height);padding:6px 5px;background:#fffffff2;border:1px solid #dce6df;border-radius:17px;box-shadow:0 9px 32px #173a2e26;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
   .suite-mobile-tabs button{min-width:0;border:0;background:transparent;color:#78877f;border-radius:12px;padding:7px 2px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:5px;font:650 9px Inter,"Segoe UI",sans-serif}
   .suite-mobile-tabs button i{font-size:15px}
   .suite-mobile-tabs button[aria-current=page]{background:#eaf4ed;color:#176f57}
