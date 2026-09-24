@@ -50,6 +50,15 @@ export function Dashboard({ onLogout, userName, isAdmin = false }: DashboardProp
       status: "checking"
     },
     {
+      name: "Split Expenses",
+      description: "Share bills, track repayments and send reminders",
+      icon: "fa-user-group",
+      route: "/splits",
+      apiUrl: `${API_BASE}/api/expenses`,
+      color: "#0f766e",
+      status: "checking"
+    },
+    {
       name: "Budget Tracker",
       description: "Plan every rupee with monthly budgets",
       icon: "fa-calculator",

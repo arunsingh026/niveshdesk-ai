@@ -5,6 +5,7 @@ const mobileDestinations = [
   { route: "/", label: "Home", icon: "fa-house" },
   { route: "/stock-planner", label: "Invest", icon: "fa-chart-line" },
   { route: "/expenses", label: "Expenses", icon: "fa-wallet" },
+  { route: "/splits", label: "Split", icon: "fa-user-group" },
   { route: "/budget", label: "Budget", icon: "fa-calculator" },
   { route: "/portfolio", label: "Portfolio", icon: "fa-briefcase" },
 ];
@@ -28,6 +29,7 @@ export function WorkspaceHeader({ section, onLogout }: { section: string; onLogo
       <div className="suite-links">
         <button aria-current={section === "Stocks & funds" ? "page" : undefined} onClick={() => navigate("/stock-planner")}>Investments</button>
         <button aria-current={section === "Expenses" ? "page" : undefined} onClick={() => navigate("/expenses")}>Expenses</button>
+        <button aria-current={section === "Split expenses" ? "page" : undefined} onClick={() => navigate("/splits")}>Split</button>
         <button aria-current={section === "Budget" ? "page" : undefined} onClick={() => navigate("/budget")}>Budget</button>
         <button aria-current={section === "Portfolio" ? "page" : undefined} onClick={() => navigate("/portfolio")}>Portfolio</button>
         <button aria-current={section === "Notifications" ? "page" : undefined} onClick={() => navigate("/notifications")}>Notifications</button>
